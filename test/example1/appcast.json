@@ -1,0 +1,28 @@
+{
+  "comment": "test/example1 appcast configuration",
+  "title": "Example / Test1 Change Log",
+  "link": "https://github.com/liquidaty/sxupdate/blob/main/test/example1/appcast.json",
+  "description": "Most recent changes with links to updates",
+  "language": "en",
+  "items": [
+    {
+      "title": "Version 1.0.0",
+      "link": "https://github.com/liquidaty/sxupdate",
+      "version": {
+        "major": 1,
+        "minor": 0,
+        "patch": 0,
+        "prerelease": "alpha",
+        "meta": "21AF26D3"
+      },
+      "description": "This is version 1.0.0-alpha+21AF26D3. Version info must follow Semantic Versioning as described at https://semver.org",
+      "pubDate": "Wed, 10 May 2023 14:08:38 +0700",
+      "enclosure": {
+        "url": "https://github.com/liquidaty/sxupdate/blob/main/test/example1/test_installer.exe",
+        "length": 99999,
+        "type": "application/octet-stream",
+        "sxupdate:edSignature": "XXXXXXX"
+      }
+    }
+  ]
+}
