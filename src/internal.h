@@ -2,7 +2,7 @@
 #define SXUPDATE_INTERNAL_H
 
 #include "../include/api.h"
-#include <yajl_helper.h>
+#include <yajl_helper/yajl_helper.h>
 
 struct sxupdate_data {
   struct {

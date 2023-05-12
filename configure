@@ -16,6 +16,7 @@ Configuration:
 Optional configuration:
   --minimal=yes           do not include extra features (default=no)
   --arch=ARCH             use -march=ARCH. Set to 'none' for none, else defaults to 'native'
+  --curl-prefix=DIR       specify directory, if not PREFIX, containing lib/libcurl and include/curl.h
 
 Installation directories:
   --prefix=PREFIX         main installation prefix [\$PREFIX or /usr/local]
@@ -31,6 +32,7 @@ Optional features:
   --enable-whole-program  compile without -fwhole-program even if no -flto [yes]
   --enable-pie            build with position independent executables [auto]
   --enable-pic            build with position independent shared libraries [auto]
+  --curl-static           compile with static curl lib using flags specified by CURL_PREFIX/bin/curl-config
 
 Some influential environment variables:
   CC                      C compiler command [detected]
@@ -114,15 +116,10 @@ NO_$upper2 = 1"
     fi
 }
 
-
+# tryccfn flag_name main_content header_file [ld flags]
 tryccfn () {
     rm -f "$tmpc"
-    if [ "$5" != "" ] ; then
-        printf "checking whether compiler accepts %s from %s with %s... " "$2" "$3" "$5"
-        echo "$5" >> "$tmpc"
-    else
-        printf "checking whether compiler accepts %s from %s..." "$2" "$3"
-    fi
+    printf "checking whether compiler accepts %s from %s..." "$2" "$3"
     if [ "$3" != "" ]; then
         printf "%s\n" $3 | sed 's/\(.*\)/#include <\1>/' >> "$tmpc"
     fi
@@ -130,13 +127,14 @@ tryccfn () {
 int main() {$2;}
 EOF
     flag=$(echo "$2" | cut -d'(' -f1 | tr a-z A-Z)
-    if $CC -o "$tmpo" "$tmpc" >/dev/null 2>&1 ; then
-        if [ "$4" != "" ] ; then
-            lib=$(echo "$4" | tr a-z A-Z | tr . _)
-            USE_LIBS="$USE_LIBS
-USE_LIB_$lib = 1"
-        fi
+    if [ "$DEBUG" = "1" ]; then
+        echo "cmd: $CC -o '$tmpo' '$tmpc'"
+        echo "tmpc:"
+        cat "$tmpc"
+        DEBUG=0
+    fi
 
+    if $CC -o "$tmpo" "$tmpc" $4 >/dev/null 2>&1 ; then
         eval "vars=\$$1"
         if ! printf "%s\n" ${vars} | grep "\-DHAVE_${flag}\$" >/dev/null 2>&1; then
             flag="-DHAVE_${flag}"
@@ -288,6 +286,9 @@ for arg ; do
         --config-file=*) CONFIGFILE=${arg#*=} ;;
         CONFIGFILE=*) CONFIGFILE=${arg#*=} ;;
 
+        --curl-prefix=*) CURL_PREFIX=${arg#*=} ;;
+        CURL_PREFIX=*) CURL_PREFIX=${arg#*=} ;;
+
         --prefix=*) ;; # already handled
         --exec-prefix=*) ;; # already handled EXEC_PREFIX=${arg#*=} ;;
         --docdir=*) DOCDIR=${arg#*=} ;;
@@ -297,6 +298,8 @@ for arg ; do
         --enable-lto|--enable-lto=yes) TRY_LTO=yes;;
         --enable-lto|--enable-lto=auto) TRY_LTO=auto;;
         --disable-lto|--enable-lto=no) TRY_LTO=no;;
+
+        --curl-static|--curl-static=yes) CURL_STATIC=yes;;
 
         --enable-whole-program|--enable-whole-program=yes) TRY_WHOLE_PROGRAM=yes ;;
         --disable-whole-program|--enable-whole-program=no) TRY_WHOLE_PROGRAM=no ;;
@@ -420,6 +423,7 @@ tryldflag LDFLAGS_TRY -Werror=unknown-warning-option
 tryldflag LDFLAGS_TRY -Werror=unused-command-line-argument
 tryldflag LDFLAGS_TRY -Werror=ignored-optimization-argument
 
+
 CFLAGS_STD="-std=gnu11 -D_POSIX_C_SOURCE=200809L -U_XOPEN_SOURCE -D_XOPEN_SOURCE=700"
 # CFLAGS_OPT="-DNDEBUG"
 MINGW=0
@@ -483,6 +487,37 @@ fi
 tryldflag LDFLAGS_OPT -ldl
 tryccfn CFLAGS_AUTO "memmem" "string.h"
 
+if [ "$CURL_PREFIX" == "" ] ; then
+    CURL_PREFIX=$PREFIX
+fi
+
+if [ "$CURL_STATIC" == "yes" ]; then
+    echo "checking availability of static curl lib"
+    OLDCC="$CC"
+    LDFLAGS_CURL="`$CURL_PREFIX/bin/curl-config --static-libs`"
+    CFLAGS_CURL="`$CURL_PREFIX/bin/curl-config --cflags`"
+    CC="$CC $CFLAGS_CURL"
+    if ! tryccfn IGNORE "curl_version()" "curl/curl.h" "$LDFLAGS_CURL"; then
+        echo "Error: Failed to compile with static curl library"
+        exit 1
+    fi
+    CC="$OLDCC"
+
+else
+    echo "checking availability of dynamic curl lib"
+    OLDCC="$CC"
+    LDFLAGS_CURL="-L$CURL_PREFIX/lib -lcurl"
+    CFLAGS_CURL=-I$CURL_PREFIX/include
+    CC="$CC $CFLAGS_CURL"
+    if ! tryccfn IGNORE "curl_version()" "curl/curl.h" "$LDFLAGS_CURL"; then
+        echo "Error: Failed to compile with dynamic curl library using:"
+        echo "  CFLAGS_CURL=$CFLAGS_CURL"
+        echo "  LDFLAGS_CURL=$LDFLAGS_CURL"
+        exit 1
+    fi
+    CC="$OLDCC"
+fi
+
 if [ "$MINGW" = "1" ]; then
     tryldflag LDFLAGS_TMP -pthread && STATIC_LIBS="$STATIC_LIBS -pthread"
 fi
@@ -521,6 +556,8 @@ CFLAGS_STD = $CFLAGS_STD
 LDFLAGS_STD = $LDFLAGS_STD
 CFLAGS_OPT = $CFLAGS_OPT
 LDFLAGS_OPT = $LDFLAGS_OPT
+LDFLAGS_CURL = $LDFLAGS_CURL
+CFLAGS_CURL = $CFLAGS_CURL
 STATIC_LIBS = $STATIC_LIBS
 CFLAGS_AUTO = $CFLAGS_AUTO
 CFLAGS_LTO = $CFLAGS_LTO
@@ -549,22 +586,28 @@ printf "done\n"
 
 echo ""
 echo "****************************************************************"
-echo "*  sxupdate configuration                                           *"
+echo "*  sxupdate configuration                                      *"
 echo "****************************************************************"
+if [ "$CURL_PREFIX" != "$PREFIX" ]; then
+    echo "*  - curl-prefix: $CURL_PREFIX"
+fi
 
 
 echo "****************************************************************"
+
+if [ "$CONFIGFILE" != "config.mk" ];
+   CONFIGPARAM="CONFIGFILE=`realpath "$CONFIGFILE"`"
+else
+    CONFIGPARAM=
+fi
 
 if ! [ "$MAKE" = "" ]; then
     echo ""
-    echo "To build and install, run"
-    echo "$MAKE install" > `pwd`/install.sh 2>/dev/null && chmod 755 `pwd`/install.sh 2>/dev/null &&
-        printf "  ./install.sh\nor\n"
-    echo "  $MAKE install"
+    echo "To build and install the library, run"
+    echo "  $MAKE -C src install $CONFIGPARAM"
     echo ""
-    echo "Other common commands:"
-    echo "  $MAKE                     # print available make commands"
-    echo "  $MAKE clean               # remove build artifacts"
+    echo "To build and run a test:"
+    echo "  $MAKE -C examples test-simple $CONFIGPARAM"
     echo ""
 fi
 

@@ -104,10 +104,11 @@ SXUPDATE_API enum sxupdate_status sxupdate_add_header(sxupdate_t handle, const c
   if(!(header_name && header_value && *header_name && *header_value))
     return sxupdate_status_invalid;
 
-  char *s;
-  asprintf(&s, "%s: %s", header_name, header_value);
+  size_t len = strlen(header_name) + strlen(header_value) + 10;
+  char *s = malloc(len);
   if(!s)
     return sxupdate_status_memory;
+  snprintf(s, len, "%s: %s", header_name, header_value);
   handle->http_headers = curl_slist_append(handle->http_headers, s);
   free(s);
   return sxupdate_status_ok;

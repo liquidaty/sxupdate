@@ -9,7 +9,23 @@ ifeq ($(CONFIGFILEPATH),)
   $(error Config file ${CONFIGFILE} not found)
 endif
 
-BUILD_DIR = $(shell cd ${THIS_MAKEFILE_DIR}/.. && pwd)/build/test
+UNAME_S := $(shell uname -s)
+DEBUG=0
+ifeq ($(DEBUG),1)
+  CFLAGS+=-g -O0
+  DBG_SUBDIR=dbg
+else
+  CFLAGS+=-O3 -DNDEBUG
+  DBG_SUBDIR=rel
+endif
+
+ifeq ($(WIN),0)
+  BUILD_SUBDIR=${UNAME_S}/${DBG_SUBDIR}
+else
+  BUILD_SUBDIR=win/${DBG_SUBDIR}
+endif
+CCBN=$(shell basename ${CC})
+BUILD_DIR=$(shell cd ${THIS_MAKEFILE_DIR}/../build/${BUILD_SUBDIR}/${CCBN} && pwd)
 
 WIN=
 
@@ -33,17 +49,26 @@ endif
 TEST_EXE=${BUILD_DIR}/test${EXE}
 DUMMY_INSTALLER=${BUILD_DIR}/dummy_installer${EXE}
 
-LIBS=-lsxupdate -lcurl -lyajl_helper
-
 YAJL_SRC_DIR=${THIS_MAKEFILE_DIR}/../external/yajl
 YAJL_SRC1=yajl yajl_alloc yajl_buf yajl_encode yajl_gen yajl_lex yajl_parser yajl_tree yajl_version
 YAJL_SRC=$(addprefix ${YAJL_SRC_DIR}/src/,$(addsuffix .c,${YAJL_SRC1}))
 
 INCLUDEDIR+= -I${YAJL_SRC_DIR}/build/yajl-2.1.1/include
 
-CFLAGS+= -g -O0
+LDFLAGS+=-lsxupdate -lyajl_helper ${LDFLAGS_CURL} -L${LIBDIR}
 
-all: ${TEST_EXE}
+CFLAGS+= ${CFLAGS_CURL}
+
+help:
+	@echo "Makefile for use with GNU Make and gcc. Set DEBUG=1 to compile with -g -O0"
+	@echo "  make [DEBUG=1] all|test-simple"
+	@echo
+	@echo "To make with a specified config file:"
+	@echo "  make CONFIGFILE=/path/to/config ..."
+	@echo
+
+all: ${TEST_EXE} ${DUMMY_INSTALLER}
+	@echo "Built $^"
 
 test-simple: ${TEST_EXE} ${DUMMY_INSTALLER} ${BUILD_DIR}/dummy_appcast.json
 	echo 'file://${BUILD_DIR}/dummy_appcast.json\nY' | ${TEST_EXE}
@@ -58,8 +83,8 @@ clean:
 
 ${DUMMY_INSTALLER}: simple/dummy_installer.c
 	@mkdir -p `dirname "$@"`
-	${CC} ${CFLAGS} -I${INCLUDEDIR} -L${LIBDIR} ${LIBS} $< ${YAJL_SRC} -o $@
+	${CC} ${CFLAGS} -I${INCLUDEDIR} $< ${YAJL_SRC} -o $@
 
 ${TEST_EXE}: test.c
 	@mkdir -p `dirname "$@"`
-	${CC} ${CFLAGS} -I${INCLUDEDIR} -L${LIBDIR} ${LIBS} $< ${YAJL_SRC} -o $@
+	${CC} ${CFLAGS} -I${INCLUDEDIR} $< ${YAJL_SRC} -o $@  ${LDFLAGS}

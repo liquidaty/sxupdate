@@ -20,7 +20,7 @@
  *
  * @param executable_path: e.g. _T("C:\\Path\\To\\Your\\Executable.exe") or "/path/to/your/program"
  ****/
-int fork_and_exit(const char *executable_path) {
+int fork_and_exit(char *executable_path) {
 #ifdef _WIN32
   STARTUPINFO si;
   PROCESS_INFORMATION pi;
@@ -39,7 +39,7 @@ int fork_and_exit(const char *executable_path) {
                     &si,            // Pointer to STARTUPINFO structure
                     &pi)           // Pointer to PROCESS_INFORMATION structure
      ) {
-    fprintf(stderr, "CreateProcess failed (%d).\n", GetLastError());
+    fprintf(stderr, "CreateProcess failed (%lu).\n", GetLastError());
     return 1;
   }
 #else
@@ -50,7 +50,7 @@ int fork_and_exit(const char *executable_path) {
   }
 
   if(pid == 0) {
-    char * argv[] = {(char *)executable_path, NULL}; // "/path/to/your/program", NULL};
+    char * argv[] = {executable_path, NULL}; // "/path/to/your/program", NULL};
     execv(argv[0], argv);
     fprintf(stderr, "Execv Failed");
     return 1;

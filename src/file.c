@@ -5,6 +5,9 @@
 #include <unistd.h> // for close()
 #include <sys/stat.h>
 
+#if defined(_WIN32) || defined(WIN32) || defined(WIN)
+#include <windows.h>
+#endif
 /**
  * Check if a directory exists
  * return true (non-zero) or false (zero)
@@ -63,11 +66,17 @@ char *sxupdate_get_installer_download_path(const char *basename) {
 
   int i;
   char *s = NULL;
-  for(i = 0; i < 10000; i++) { // overusing asprintf() but root of evil etc...
+  for(i = 0; i < 10000; i++) { // overusing malloc() but root of evil etc...
+    size_t len = strlen(tmpdir) + strlen(basename) + strlen(suffix) + 10;
+    s = calloc(1, len + 1);
+    if(!s) {
+      fprintf(stderr, "Out of memory!\n");
+      return NULL;
+    }
     if(i == 0)
-      asprintf(&s, "%s%c%s%s", tmpdir, slash, basename, suffix);
+      snprintf(s, len, "%s%c%s%s", tmpdir, slash, basename, suffix);
     else
-      asprintf(&s, "%s%c%s (%i)%s", tmpdir, slash, basename, i, suffix);
+      snprintf(s, len, "%s%c%s (%i)%s", tmpdir, slash, basename, i, suffix);
     if(!file_exists(s))
       return s;
     free(s);
@@ -87,6 +96,8 @@ int sxupdate_set_execute_permission(const char *path) {
     fprintf(stderr, "Could not set execute permissions: %s\n", path);
     return 1;
   }
+#else
+  (void)(path);
 #endif
   return 0;
 }
