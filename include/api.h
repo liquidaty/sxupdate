@@ -1,47 +1,99 @@
-#ifndef SXUPDATE_H
+#ifndef SXUPDATE_API_H
+#define SXUPDATE_API_H
 
-typedef struct sxupdate_data *sxupdater;
+#define SXUPDATE_API
 
-struct sxupdate_version {
-  struct {
-    int major;
-    int minor;
-    int patch;
-  } version;
+#include <ctype.h>
 
-  struct {
-    const char *title;
-    const char *link;
-    const char *version;
-    const char *description;
-    const char *pubDate;
-    struct {
-      const char *url;
-      size_t length;
-      const char *type;
-      const char *signature;
-    } enclosure;
-  } item;
+typedef struct sxupdate_data *sxupdate_t;
+
+enum sxupdate_status {
+  sxupdate_status_ok = 0,
+  sxupdate_status_error,
+  sxupdate_status_memory,
+  sxupdate_status_bad_url,
+  sxupdate_status_invalid, /* invalid option value */
+  sxupdate_status_parse    /* parse error */
 };
 
-/***
- * Provide a callback to determine if there is a newer version and if so,
- * whether to continue with the update
- *
- * The callback should manage the process of:
- * - checking whether the version is in fact newer
- * - confirming that the user wants to proceed with the update
- *
- * The callback should then call next with do_update set to non-zero to proceed with the update, or zero not to proceed with any update
- **/
-void sxupdate_install_version_callback(sxupdater *,
-                                       void (*install_newer_version)(const struct sxupdate_version *version, void (*next)(sxupdater *, int do_update)));
+enum sxupdate_action {
+  sxupdate_action_proceed = 100,
+  sxupdate_action_abort = 200
+};
+
+struct sxupdate_semantic_version { /* see https://semver.org */
+  int major;
+  int minor;
+  int patch;
+  char *prerelease;
+  char *meta;
+};
+
+struct sxupdate_version { // structure for an appcast item
+  char *title;
+  char *link;
+  char *description;
+  char *pubDate;
+
+  struct sxupdate_semantic_version version;
+
+  struct {
+    char *url;
+    size_t length;
+    char *type;
+    char *signature;
+    char *filename; /* name of downloaded file e.g. 'myapp_installer.exe' */
+  } enclosure;
+};
+
 
 /***
- * Parse the JSON file containing the latest version info
+ * Get a new sxupdate handle
  **/
-enum yajl_status sxupdate_parse(sxupdater *, const char *data, size_t len);
+sxupdate_t sxupdate_new();
+
+/***
+ * Delete a handle that was created with sxupdate_new()
+ */
+void sxupdate_delete(sxupdate_t handle);
+
+/***
+ * Set the callback that will inform sxupdate what this build's version is, so that
+ * it can compare to the version metadata it fetches
+ */
+void sxupdate_set_current_version(sxupdate_t handle,
+                                  struct sxupdate_semantic_version (*cb)());
+
+/***
+ * Set the callback that will be called in the event an updated version is available
+ * Use this if your callback will execute synchronously
+ */
+void sxupdate_on_update_available(sxupdate_t handle,
+                                  enum sxupdate_action (*cb)(const struct sxupdate_version *version));
+
+/***
+ * Set the url used to fetch the version info. The url value can be transient, and must
+ * start with http:// or file://
+ */
+enum sxupdate_status sxupdate_set_url(sxupdate_t handle, const char *url);
 
 
+/***
+ * Set a custom header to send with the fetch request. The header name and value can be transient
+ */
+enum sxupdate_status sxupdate_add_header(sxupdate_t handle, const char *header_name, const char *header_value);
 
-#ifndef SXUPDATE_H
+/***
+ * Execute the update
+ *
+ * @return 0 on success, else non-zero.
+ **/
+enum sxupdate_status sxupdate_execute(sxupdate_t handle);
+
+/***
+ * Retrieve the last error message, if any [NOT YET IMPLEMENTED]
+ */
+const char *sxupdate_err_msg(sxupdate_t handle);
+
+
+#endif // SXUPDATE_API_H

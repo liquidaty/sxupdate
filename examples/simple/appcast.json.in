@@ -1,0 +1,19 @@
+{
+  "items": [
+    {
+      "version": {
+        "major": 2,
+        "minor": 1,
+        "patch": 1,
+        "prerelease": "alpha",
+        "meta": "21AF26D3"
+      },
+      "enclosure": {
+        "url": "file://THIS_DIR/dummy_installer",
+        "length": 99999,
+        "filename": "dummy_installer.exe",
+        "signature": "XXXXXXX"
+      }
+    }
+  ]
+}
