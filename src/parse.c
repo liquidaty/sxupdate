@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 
@@ -51,13 +52,20 @@ static int sxupdate_process_value(struct yajl_helper_parse_state *st, struct jso
     int err;
     long long i = json_value_long(value, &err);
     if(int_target && (i < 0 || i >= INTMAX_MAX))
-      fprintf(stderr, "Warning! invalid integer value ignored\n"); // to do: use custom error handler
-    else if(sz_target && (i < 0 || i >= (long long int)SIZE_MAX))
-      fprintf(stderr, "Warning! invalid integer value ignored\n"); // to do: use custom error handler
+      err = fprintf(stderr, "Warning! invalid integer value ignored\n"); // to do: use custom error handler
+    else if(sz_target && i < 0)
+      err = fprintf(stderr, "Warning! invalid integer (size_t) value ignored: %lli\n", i); // to do: use custom error handler
     else if(int_target)
       *int_target = (int)i;
     else if(sz_target)
       *sz_target = (size_t)i;
+    if(err) {
+      char *s = NULL;
+      json_value_to_string_dup(value, &s, 1);
+      if(s)
+        fprintf(stderr, "Value on error: %s\n", s);
+      free(s);
+    }
   }
   return 1; // 1 = continue; 0 = halt
 }
@@ -77,15 +85,43 @@ static int str_ends_with(const char *s, const char *suffix) {
   return 0;
 }
 
-/* check_url: return 0 if bad; 1 if https, 2 if file */
-int sxupdate_url_ok(const char *s) {
+int sxupdate_url_is_file(const char *s) {
   size_t len = strlen(s);
-  if(len > 8 && !memcmp(s, "file://", 7))
-    return 2; // it's a file
-  if(len < 9 || memcmp(s, "https://", 8))
-    return 0; // bad!
-  return 1; // ok url
+  if(len > 8 && !memcmp(s, SXUPDATE_FILE_PREFIX, 7))
+    return 1;
+  return 0;
 }
+
+int sxupdate_url_is_https(const char *s) {
+  size_t len = strlen(s);
+  if(len > 9 && !memcmp(s, SXUPDATE_HTTPS_PREFIX, 8))
+    return 1;
+  return 0;
+}
+
+/**
+ * see schema/appcast.schema.json
+ * return 1 if s only contains alphanumeric characters, dash, slash, underscore and period",
+ **/
+int sxupdate_is_relative_filename(const char *s) {
+  size_t len = s ? strlen(s) : 0;
+  if(!len)
+    return 0;
+  for(size_t i = 0; i < len; i++) {
+    char c = s[i];
+    if(!((c >= 'a' && c <= 'z')
+         || (c >= 'A' && c <= 'Z')
+         || (c >= '0' && c <= '9')
+         || (c == '_' || c == '-' || c == '/' || c == '.')
+         )
+       )
+      return 0;
+  }
+  if(strstr(s, "//") || s[len-1] == '/')
+    return 0;
+  return 1;
+}
+
 
 /***
  * sxupdate_parse_ok: return 1 if ok, 0 if NOT OK
@@ -108,7 +144,8 @@ static int sxupdate_parse_ok(sxupdate_t handle) {
   if(!v->enclosure.url)
     err = fprintf(stderr, "Version enclosure: missing url\n");
 
-  if(!(sxupdate_url_ok(v->enclosure.url)))
+  if(!sxupdate_url_is_https(v->enclosure.url) && !sxupdate_url_is_file(v->enclosure.url)
+     && !sxupdate_is_relative_filename(v->enclosure.url))
     err = fprintf(stderr, "Version enclosure: bad url (%s)\n", v->enclosure.url);
 
   // check major / minor / patch

@@ -80,20 +80,18 @@ SXUPDATE_API enum sxupdate_status sxupdate_set_url(sxupdate_t handle, const char
   if(!url) {
     free(handle->url);
     handle->url = NULL;
-  } else {
-    switch(sxupdate_url_ok(url)) {
-    case 0:
-      return sxupdate_status_bad_url;
-    case 1:
-      handle->url_is_file = 0;
-      break;
-    case 2:
-      handle->url_is_file = 1;
-      break;
-    }
-    free(handle->url);
-    handle->url = strdup(url);
+    return sxupdate_status_bad_url;
   }
+
+  if(sxupdate_url_is_https(url))
+    handle->url_is_file = 0;
+  else if(sxupdate_url_is_file(url))
+    handle->url_is_file = 1;
+  else
+    return sxupdate_status_bad_url;
+
+  free(handle->url);
+  handle->url = strdup(url);
   return sxupdate_status_ok;
 }
 
@@ -150,7 +148,7 @@ static enum sxupdate_status sxupdate_fetch_and_parse(sxupdate_t handle, struct c
 
     // do the parse
     if(handle->url_is_file) {
-      const char *filename = handle->url + strlen("file://");
+      const char *filename = handle->url + strlen(SXUPDATE_FILE_PREFIX);
       FILE *f = fopen(filename, "rb");
       if(f) {
         char buff[1024];
@@ -173,9 +171,11 @@ static enum sxupdate_status sxupdate_fetch_and_parse(sxupdate_t handle, struct c
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, handle);
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, sxupdate_parse_chunk);
 
+#ifdef _WIN32
         // if(no_verify)
-        //  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
-        //  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0);
+#endif
 
         // execute
         CURLcode res = curl_easy_perform(curl);
@@ -183,6 +183,7 @@ static enum sxupdate_status sxupdate_fetch_and_parse(sxupdate_t handle, struct c
           fprintf(stderr, "Error connecting to %s:\n  %s\n", handle->url, curl_easy_strerror(res));
           stat = sxupdate_status_error;
         }
+        curl_easy_cleanup(curl);
       }
     }
 
@@ -193,16 +194,61 @@ static enum sxupdate_status sxupdate_fetch_and_parse(sxupdate_t handle, struct c
   return stat;
 }
 
+
+static char *url_merge(const char *parent_url, const char *relative_url) {
+  size_t parent_bytes_to_keep;
+  if(strncmp(parent_url, SXUPDATE_HTTPS_PREFIX, strlen(SXUPDATE_HTTPS_PREFIX))) {
+    char *first_slash = strchr(parent_url + strlen(SXUPDATE_HTTPS_PREFIX), '/');
+    if(!first_slash) {
+      fprintf(stderr, "url_merge: unexpected error 1\n");
+      return NULL;
+    }
+    parent_bytes_to_keep = first_slash - parent_url + 1;
+  } else if(strncmp(parent_url, SXUPDATE_FILE_PREFIX, strlen(SXUPDATE_FILE_PREFIX)))
+    parent_bytes_to_keep = strlen(SXUPDATE_FILE_PREFIX);
+  else {
+    fprintf(stderr, "url_merge: unexpected error 2\n");
+    return NULL;
+  }
+
+  if(strncmp(relative_url, "./", 2))
+    relative_url += 2;
+
+  if(*relative_url != '/') {
+    // relative path. extend parent_bytes_to_keep to the last slash
+    char *last_slash = strrchr(parent_url + parent_bytes_to_keep, '/');
+    if(last_slash && last_slash > parent_url + parent_bytes_to_keep)
+      parent_bytes_to_keep = last_slash - parent_url;
+  } else
+    relative_url++;
+  size_t len = parent_bytes_to_keep + strlen(relative_url) + 3;
+  char *merged_url = malloc(len);
+  snprintf(merged_url, len, "%.*s%s", (int)parent_bytes_to_keep, parent_url, relative_url);
+  return merged_url;
+}
+
 /***
  * Download the installer file and save the file path to save_path_p
  *
  * @return sxupdate_status_ok on success
  */
-static enum sxupdate_status sxupdate_download(struct sxupdate_version *version,
+static enum sxupdate_status sxupdate_download(const char *parent_url,
+                                              struct sxupdate_version *version,
                                               struct curl_slist *http_headers,
                                               char **save_path_p) {
-  if(sxupdate_url_ok(version->enclosure.url) == 2) {
-    *save_path_p = strdup(version->enclosure.url + strlen("file://"));
+  *save_path_p = NULL;
+  char *resolved_url = NULL;
+  if(sxupdate_is_relative_filename(version->enclosure.url)) {
+    resolved_url = url_merge(parent_url, version->enclosure.url);
+    if(!resolved_url)
+      return sxupdate_status_error;
+  } else
+    resolved_url = version->enclosure.url;
+
+  if(sxupdate_url_is_file(resolved_url) == 2) {
+    *save_path_p = strdup(resolved_url + strlen(SXUPDATE_FILE_PREFIX));
+    if(resolved_url != version->enclosure.url)
+      free(resolved_url);
     return sxupdate_status_ok;
   }
 
@@ -222,7 +268,7 @@ static enum sxupdate_status sxupdate_download(struct sxupdate_version *version,
       if(!curl)
         stat = sxupdate_status_memory;
       else {
-        curl_easy_setopt(curl, CURLOPT_URL, version->enclosure.url);
+        curl_easy_setopt(curl, CURLOPT_URL, resolved_url);
 
         // set custom headers
         if(http_headers)
@@ -231,15 +277,18 @@ static enum sxupdate_status sxupdate_download(struct sxupdate_version *version,
         // set write to temp file
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, f);
 
+
+#ifdef _WIN32
         // if(no_verify)
-        //  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
-        //  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0);
+#endif
 
         // connect and download
         CURLcode res = curl_easy_perform(curl);
 
         if(res != CURLE_OK)
-          fprintf(stderr, "Error connecting to %s:\n  %s\n", version->enclosure.url, curl_easy_strerror(res));
+          fprintf(stderr, "Error connecting to %s:\n  %s\n", resolved_url, curl_easy_strerror(res));
         else {
           // TO DO: check download file size, check signature
 
@@ -247,15 +296,19 @@ static enum sxupdate_status sxupdate_download(struct sxupdate_version *version,
           if(!sxupdate_set_execute_permission(save_path))
             stat = sxupdate_status_ok;
         }
+        curl_easy_cleanup(curl);
       }
     }
   }
 
-  if(stat != sxupdate_status_ok) {
+  if(stat != sxupdate_status_ok)
     free(save_path);
-    *save_path_p = NULL;
-  } else
+  else
     *save_path_p = save_path;
+
+  if(resolved_url != version->enclosure.url)
+    free(resolved_url);
+
   return stat;
 }
 
@@ -280,7 +333,7 @@ SXUPDATE_API enum sxupdate_status sxupdate_execute(sxupdate_t handle) {
         // execute callback and proceed if it returns sxupdate_action_do_update
         if(handle->sync_cb(&handle->latest_version) == sxupdate_action_proceed) {
           char *downloaded_file_path;
-          stat = sxupdate_download(&handle->latest_version, handle->http_headers, &downloaded_file_path);
+          stat = sxupdate_download(handle->url, &handle->latest_version, handle->http_headers, &downloaded_file_path);
           if(stat == sxupdate_status_ok) {
             if(fork_and_exit(downloaded_file_path))
               stat = sxupdate_status_error;

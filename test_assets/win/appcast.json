@@ -9,7 +9,7 @@
         "meta": "21AF26D3"
       },
       "enclosure": {
-        "url": "./dummy_installer.exe",
+        "url": "dummy_installer.exe",
         "length": 99999,
         "filename": "dummy_installer.exe",
         "signature": "XXXXXXX"

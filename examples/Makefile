@@ -39,7 +39,6 @@ ifeq (${WIN},)
   WIN=0
 endif
 
-
 ifneq (${WIN},0)
   EXE=.exe
 else
@@ -55,7 +54,14 @@ YAJL_SRC=$(addprefix ${YAJL_SRC_DIR}/src/,$(addsuffix .c,${YAJL_SRC1}))
 
 INCLUDEDIR+= -I${YAJL_SRC_DIR}/build/yajl-2.1.1/include
 
-LDFLAGS+=-lsxupdate -lyajl_helper ${LDFLAGS_CURL} -L${LIBDIR}
+LDFLAGS+= -lsxupdate -lyajl_helper ${LDFLAGS_CURL} -L${LIBDIR}
+ifneq ($(UNAME_S),Darwin)
+  LDFLAGS+=-static -lbcrypt
+else
+  ifneq ($(WIN),0)
+    LDFLAGS+=-static -lbcrypt
+  endif
+endif
 
 CFLAGS+= ${CFLAGS_CURL}
 

@@ -4,6 +4,9 @@
 #include "../include/api.h"
 #include "internal.h"
 
+#define  SXUPDATE_HTTPS_PREFIX "https://"
+#define  SXUPDATE_FILE_PREFIX "file://"
+
 enum sxupdate_status sxupdate_parse_init(sxupdate_t handle);
 
 /***
@@ -18,8 +21,13 @@ enum sxupdate_status sxupdate_parse(sxupdate_t handle, const char *data, size_t 
 
 enum sxupdate_status sxupdate_parse_finish(sxupdate_t handle);
 
-/* check url: return 0 if bad; 1 if https, 2 if file */
-int sxupdate_url_ok(const char *s);
+int sxupdate_url_is_file(const char *s);
+int sxupdate_url_is_https(const char *s);
 
+/**
+ * see schema/appcast.schema.json
+ * return 1 if s only contains alphanumeric characters, dash, underscore and period",
+ **/
+int sxupdate_is_relative_filename(const char *s);
 
 #endif

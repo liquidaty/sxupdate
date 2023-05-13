@@ -6,7 +6,7 @@ static char *fgets_no_trailing_white(char * restrict str, int size, FILE * restr
   char *s = fgets(str, size, stream);
   while(s && *s && strchr(" \n\r\t\f", s[strlen(s)-1]))
     s[strlen(s)-1] = '\0';
-  return s;
+  return s && *s ? s : NULL;
 }
 
 static enum sxupdate_action ask_to_proceed(const struct sxupdate_version *version) {
