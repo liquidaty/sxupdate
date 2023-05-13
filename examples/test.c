@@ -64,6 +64,7 @@ int main(int argc, const char *argv[]) {
 
   sxupdate_t sxu = sxupdate_new();
   if(sxu) {
+    sxupdate_set_verbosity(sxu, 5);
     sxupdate_set_current_version(sxu, get_version);
     sxupdate_on_update_available(sxu, ask_to_proceed);
     sxupdate_set_url(sxu, url);

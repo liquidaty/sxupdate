@@ -25,6 +25,15 @@ SXUPDATE_API void sxupdate_set_current_version(sxupdate_t handle,
   handle->get_current_version = cb;
 }
 
+/***
+ * Set verbosity level (for debugging)
+ *
+ * @param verbosity: number between 0 (normal) and 5 (maximum). Any value > 5 is treated as 5
+ */
+SXUPDATE_API void sxupdate_set_verbosity(sxupdate_t handle, unsigned char verbosity) {
+  handle->verbosity = (verbosity > 5 ? 5 : verbosity);
+}
+
 static void sxupdate_free(sxupdate_t handle) {
   if(handle->http_headers)
     curl_slist_free_all(handle->http_headers);
@@ -211,14 +220,14 @@ static char *url_merge(const char *parent_url, const char *relative_url) {
     return NULL;
   }
 
-  if(strncmp(relative_url, "./", 2))
+  if(!strncmp(relative_url, "./", 2))
     relative_url += 2;
 
   if(*relative_url != '/') {
     // relative path. extend parent_bytes_to_keep to the last slash
     char *last_slash = strrchr(parent_url + parent_bytes_to_keep, '/');
     if(last_slash && last_slash > parent_url + parent_bytes_to_keep)
-      parent_bytes_to_keep = last_slash - parent_url;
+      parent_bytes_to_keep = last_slash - parent_url + 1;
   } else
     relative_url++;
   size_t len = parent_bytes_to_keep + strlen(relative_url) + 3;
@@ -235,13 +244,18 @@ static char *url_merge(const char *parent_url, const char *relative_url) {
 static enum sxupdate_status sxupdate_download(const char *parent_url,
                                               struct sxupdate_version *version,
                                               struct curl_slist *http_headers,
-                                              char **save_path_p) {
+                                              char **save_path_p,
+                                              unsigned char verbosity) {
   *save_path_p = NULL;
   char *resolved_url = NULL;
   if(sxupdate_is_relative_filename(version->enclosure.url)) {
+    if(verbosity > 1)
+      fprintf(stderr, "Merging urls: %s + %s\n", parent_url, version->enclosure.url);
     resolved_url = url_merge(parent_url, version->enclosure.url);
-    if(!resolved_url)
+    if(!resolved_url) {
+      fprintf(stderr, "Unable to merge urls: %s + %s\n", parent_url, version->enclosure.url);
       return sxupdate_status_error;
+    }
   } else
     resolved_url = version->enclosure.url;
 
@@ -249,6 +263,8 @@ static enum sxupdate_status sxupdate_download(const char *parent_url,
     *save_path_p = strdup(resolved_url + strlen(SXUPDATE_FILE_PREFIX));
     if(resolved_url != version->enclosure.url)
       free(resolved_url);
+    if(verbosity)
+      fprintf(stderr, "Using local file %s\n", *save_path_p ? *save_path_p : "memory error!");
     return sxupdate_status_ok;
   }
 
@@ -259,6 +275,8 @@ static enum sxupdate_status sxupdate_download(const char *parent_url,
   if(!save_path)
     stat = sxupdate_status_memory;
   else {
+    if(verbosity)
+      fprintf(stderr, "Downloading to %s from %s\n", save_path, resolved_url);
     FILE *f = fopen(save_path, "wb");
     if(!f)
       perror(save_path);
@@ -274,9 +292,10 @@ static enum sxupdate_status sxupdate_download(const char *parent_url,
         if(http_headers)
           curl_easy_setopt(curl, CURLOPT_HTTPHEADER, http_headers);
 
+        // to do: add option for custom progress reporting
+
         // set write to temp file
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, f);
-
 
 #ifdef _WIN32
         // if(no_verify)
@@ -296,8 +315,11 @@ static enum sxupdate_status sxupdate_download(const char *parent_url,
           if(!sxupdate_set_execute_permission(save_path))
             stat = sxupdate_status_ok;
         }
+        if(verbosity > 2)
+          fprintf(stderr, "cleaning up curl call\n");
         curl_easy_cleanup(curl);
       }
+      fclose(f);
     }
   }
 
@@ -333,9 +355,9 @@ SXUPDATE_API enum sxupdate_status sxupdate_execute(sxupdate_t handle) {
         // execute callback and proceed if it returns sxupdate_action_do_update
         if(handle->sync_cb(&handle->latest_version) == sxupdate_action_proceed) {
           char *downloaded_file_path;
-          stat = sxupdate_download(handle->url, &handle->latest_version, handle->http_headers, &downloaded_file_path);
+          stat = sxupdate_download(handle->url, &handle->latest_version, handle->http_headers, &downloaded_file_path, handle->verbosity);
           if(stat == sxupdate_status_ok) {
-            if(fork_and_exit(downloaded_file_path))
+            if(fork_and_exit(downloaded_file_path, handle->verbosity))
               stat = sxupdate_status_error;
           }
           free(downloaded_file_path);

@@ -53,6 +53,13 @@ struct sxupdate_version { // structure for an appcast item
 sxupdate_t sxupdate_new();
 
 /***
+ * Set verbosity level (for debugging)
+ *
+ * @param verbosity: number between 0 (normal) and 5 (maximum). Any value > 5 is treated as 5
+ */
+void sxupdate_set_verbosity(sxupdate_t handle, unsigned char verbosity);
+
+/***
  * Delete a handle that was created with sxupdate_new()
  */
 void sxupdate_delete(sxupdate_t handle);

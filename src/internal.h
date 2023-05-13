@@ -16,6 +16,7 @@ struct sxupdate_data {
   struct curl_slist *http_headers;
   struct sxupdate_version latest_version;
 
+  unsigned char verbosity;
   unsigned char url_is_file:1;
   unsigned char _:7;
 };
