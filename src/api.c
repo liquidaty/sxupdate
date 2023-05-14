@@ -39,6 +39,30 @@ SXUPDATE_API void sxupdate_set_verbosity(sxupdate_t handle, unsigned char verbos
   handle->verbosity = (verbosity > 5 ? 5 : verbosity);
 }
 
+/***
+ * Add an argument that will be passed to the installer when it is invoked
+ * In windows environment, the argument will be appended to the command string,
+ * and the caller must handle any necessary escaping (e.g. quotation marks)
+ *
+ * @param dir: the argument to add e.g. /D=C:\Program Files\NSIS
+ */
+enum sxupdate_status sxupdate_add_installer_arg(sxupdate_t handle, const char *val) {
+  struct sxupdate_string_list *arg = calloc(1, sizeof(*arg));
+  char *value = strdup(val);
+  if(!(arg && value)) {
+    free(arg);
+    free(value);
+    return sxupdate_status_memory;
+  }
+  arg->value = value;
+  if(handle->installer_args == NULL)
+    handle->installer_args_next = &handle->installer_args;
+  *handle->installer_args_next = arg;
+  handle->installer_args_next = &arg->next;
+
+  return sxupdate_status_ok;
+}
+
 static void sxupdate_free(sxupdate_t handle) {
   if(handle->http_headers)
     curl_slist_free_all(handle->http_headers);
@@ -48,6 +72,11 @@ static void sxupdate_free(sxupdate_t handle) {
 
   sxupdate_version_free(&handle->latest_version);
 
+  for(struct sxupdate_string_list *next, *arg = handle->installer_args; arg; arg = next) {
+    next = arg->next;
+    free(arg->value);
+    free(arg);
+  }
   free(handle->latest_version_internal.signature);
   free(handle->url);
   yajl_helper_parse_state_free(&handle->parser.st);
@@ -203,6 +232,8 @@ static enum sxupdate_status sxupdate_fetch_and_parse(sxupdate_t handle, struct c
     // do the parse
     if(handle->url_is_file) {
       const char *filename = handle->url + strlen(SXUPDATE_FILE_PREFIX);
+      if(handle->verbosity)
+        fprintf(stderr, "Fetching version info from local file %s\n", filename);
       FILE *f = fopen(filename, "rb");
       if(f) {
         char buff[1024];
@@ -232,6 +263,8 @@ static enum sxupdate_status sxupdate_fetch_and_parse(sxupdate_t handle, struct c
 #endif
 
         // execute
+        if(handle->verbosity)
+          fprintf(stderr, "Fetching version info from %s\n", handle->url);
         CURLcode res = curl_easy_perform(curl);
         if(res != CURLE_OK) {
           fprintf(stderr, "Error connecting to %s:\n  %s\n", handle->url, curl_easy_strerror(res));
@@ -405,7 +438,7 @@ SXUPDATE_API enum sxupdate_status sxupdate_execute(sxupdate_t handle) {
             // check download file size, check signature
             stat = sxupdate_verify_signature(handle, downloaded_file_path);
             if(stat == sxupdate_status_ok) {
-              if(fork_and_exit(downloaded_file_path, handle->verbosity))
+              if(fork_and_exit(downloaded_file_path, handle->installer_args, handle->verbosity))
                 stat = sxupdate_status_error;
             }
           }

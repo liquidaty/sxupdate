@@ -80,17 +80,17 @@ help:
 all: ${TEST_EXE} ${DUMMY_INSTALLER}
 	@echo "Built $^"
 
-test-simple: ${TEST_EXE} ${DUMMY_INSTALLER} ${BUILD_DIR}/dummy_appcast.json ${BUILD_DIR}/dummy_public_key.pem
+test-simple: ${TEST_EXE} ${DUMMY_INSTALLER} ${BUILD_DIR}/dummy_appcast.json ../test_assets/public_key.pem
 ifeq ($(WIN),0)
 	echo 'file://${BUILD_DIR}/dummy_appcast.json\nY' | ${TEST_EXE}
 else
 	echo "Built $^"
 endif
 
-${BUILD_DIR}/dummy_private_key.pem:
+../test_assets/private_key.pem:
 	openssl genpkey -algorithm RSA -out $@
 
-${BUILD_DIR}/dummy_public_key.pem: ${BUILD_DIR}/dummy_private_key.pem
+../test_assets/public_key.pem: ../test_assets/private_key.pem
 	openssl rsa -pubout -in $< -out $@
 
 ${BUILD_DIR}/dummy_appcast.json: simple/appcast.json.in ${BUILD_DIR}/dummy_signature.txt
@@ -99,6 +99,7 @@ ${BUILD_DIR}/dummy_appcast.json: simple/appcast.json.in ${BUILD_DIR}/dummy_signa
 	mv $@.tmp $@
 
 ${BUILD_DIR}/dummy_signature.txt: ${BUILD_DIR}/dummy_signature.sig
+#	openssl dgst -sha256 -sign ../test_assets/private_key.pem ${DUMMY_INSTALLER} | openssl base64 -A > $@
 	openssl base64 -A -in $< > $@
 
 clean:
@@ -108,8 +109,8 @@ ${DUMMY_INSTALLER}: simple/dummy_installer.c
 	@mkdir -p `dirname "$@"`
 	${CC} ${CFLAGS} -I${INCLUDEDIR} $< ${YAJL_SRC} -o $@
 
-${BUILD_DIR}/dummy_signature.sig: ${DUMMY_INSTALLER} ${BUILD_DIR}/dummy_private_key.pem
-	openssl dgst -sha256 -sign ${BUILD_DIR}/dummy_private_key.pem -out $@ $<
+${BUILD_DIR}/dummy_signature.sig: ${DUMMY_INSTALLER} ../test_assets/private_key.pem
+	openssl dgst -sha256 -sign ../test_assets/private_key.pem -out $@ $<
 
 ${TEST_EXE}: test.c
 	@mkdir -p `dirname "$@"`

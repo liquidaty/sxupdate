@@ -7,7 +7,10 @@
 #include "../include/api.h"
 #include <yajl_helper/yajl_helper.h>
 
-
+struct sxupdate_string_list {
+  struct sxupdate_string_list *next;
+  char *value;
+};
 
 struct sxupdate_data {
   struct {
@@ -18,6 +21,7 @@ struct sxupdate_data {
   enum sxupdate_action (*sync_cb)(const struct sxupdate_version *version);
 
   char *url;
+  struct sxupdate_string_list *installer_args, **installer_args_next;
 
   struct curl_slist *http_headers;
   struct sxupdate_version latest_version;

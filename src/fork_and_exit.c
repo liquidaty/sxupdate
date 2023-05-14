@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include "internal.h"
 
 #ifdef _WIN32
 # include <windows.h>
@@ -54,11 +55,38 @@ static WCHAR *utf8ToWide(const char *s_utf8) {
  *
  * @param executable_path: e.g. _T("C:\\Path\\To\\Your\\Executable.exe") or "/path/to/your/program"
  ****/
-int fork_and_exit(char *executable_path, unsigned char verbosity) {
-  if(verbosity)
-    fprintf(stderr, "Fork and execute: %s\n", executable_path);
+int fork_and_exit(char *executable_path, struct sxupdate_string_list *args,
+                  unsigned char verbosity) {
+  if(verbosity) {
+    fprintf(stderr, "Executing: %s\n", executable_path);
+    if(args) {
+      for(struct sxupdate_string_list *arg = args; arg; arg = arg->next)
+        fprintf(stderr, "  %s\n", arg->value);
+    }
+    fprintf(stderr, "\n");
+  }
+
 #ifdef _WIN32
-  WCHAR *path_w = utf8ToWide(executable_path);
+  char *cmd = executable_path;
+  if(args) {
+    size_t len = strlen(executable_path);
+    for(struct sxupdate_string_list *arg = args; arg; arg = arg->next)
+      len += 1 + strlen(arg->value);
+    len += 2;
+
+    cmd = calloc(1, len);
+    strcat(cmd, executable_path);
+    for(struct sxupdate_string_list *arg = args; arg; arg = arg->next) {
+      strcat(cmd, " ");
+      strcat(cmd, arg->value);
+    }
+  }
+  if(verbosity)
+    fprintf(stderr, "Final cmd: %s\n", cmd);
+
+  WCHAR *path_w = utf8ToWide(cmd);
+  if(cmd != executable_path)
+    free(cmd);
   if(!path_w)
     return 1;
 
@@ -100,7 +128,21 @@ int fork_and_exit(char *executable_path, unsigned char verbosity) {
   }
 
   if(pid == 0) {
-    char * argv[] = {executable_path, NULL}; // "/path/to/your/program", NULL};
+    size_t argc = 1;
+    for(struct sxupdate_string_list *arg = *args; arg; arg = arg->next)
+      argc++;
+    char *argv[argc];
+    if(!argv) {
+      fprintf(stderr, "Out of memory!");
+      return 1;
+    }
+
+    argv[0] = executable_path;
+    int i = 1;
+    for(struct sxupdate_string_list *arg = *args; arg; arg = arg->next)
+      argv[i++] = arg->value;
+    argv[i++] = NULL;
+
     execv(argv[0], argv);
     fprintf(stderr, "Execv Failed");
     return 1;

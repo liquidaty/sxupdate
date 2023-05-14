@@ -53,6 +53,11 @@ struct sxupdate_version { // structure for an appcast item
 sxupdate_t sxupdate_new();
 
 /***
+ * Delete a handle that was created with sxupdate_new()
+ */
+void sxupdate_delete(sxupdate_t handle);
+
+/***
  * Set verbosity level (for debugging)
  *
  * @param verbosity: number between 0 (normal) and 5 (maximum). Any value > 5 is treated as 5
@@ -60,9 +65,13 @@ sxupdate_t sxupdate_new();
 void sxupdate_set_verbosity(sxupdate_t handle, unsigned char verbosity);
 
 /***
- * Delete a handle that was created with sxupdate_new()
+ * Add an argument that will be passed to the installer when it is invoked
+ * In windows environment, the argument will be appended to the command string,
+ * and the caller must handle any necessary escaping (e.g. quotation marks)
+ *
+ * @param dir: the argument to add e.g. /D=C:\Program Files\NSIS
  */
-void sxupdate_delete(sxupdate_t handle);
+enum sxupdate_status sxupdate_add_installer_arg(sxupdate_t handle, const char *value);
 
 /***
  * Set the callback that will inform sxupdate what this build's version is, so that

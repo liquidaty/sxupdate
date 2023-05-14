@@ -12,4 +12,9 @@ To save a configuration to a specific configuration file:
    ./configure CONFIGFILE=/path/to/my-config.mk
 
 which can be used with make via:
-      make -C src install CONFIGFILE=/path/to/my-config.mk 
+      make -C src install CONFIGFILE=/path/to/my-config.mk
+
+
+TO DO:
+  - use EVP_PKEY_verify() instead of RSA_verify()
+  - support options to use verification hash other than SHA256
