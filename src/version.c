@@ -85,3 +85,18 @@ int sxupdate_version_cmp(struct sxupdate_semantic_version v1, struct sxupdate_se
   }
   return 0;
 }
+
+void sxupdate_version_free(struct sxupdate_version *v) {
+  free(v->title);
+  free(v->link);
+  free(v->description);
+  free(v->pubDate);
+
+  free(v->version.prerelease);
+  free(v->version.meta);
+
+  free(v->enclosure.url);
+  free(v->enclosure.type);
+  free(v->enclosure.signature);
+  free(v->enclosure.filename);
+}

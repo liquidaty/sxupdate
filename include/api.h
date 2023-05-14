@@ -102,5 +102,18 @@ enum sxupdate_status sxupdate_execute(sxupdate_t handle);
  */
 const char *sxupdate_err_msg(sxupdate_t handle);
 
+#ifndef NO_SIGNATURE
+#include <openssl/rsa.h>
+
+/**
+ * Set public key. This function must be called at least once before sxupdate_execute()
+ * can be run
+ */
+void sxupdate_set_public_key(sxupdate_t handle, RSA *key);
+
+enum sxupdate_status sxupdate_set_public_key_from_file(sxupdate_t handle, const char *filepath);
+
+#endif
+
 
 #endif // SXUPDATE_API_H

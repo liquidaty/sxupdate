@@ -2,12 +2,17 @@
 #include <string.h>
 #include <curl/curl.h>
 
+#ifndef NO_SIGNATURE
+#include <openssl/rsa.h>
+#endif
+
 #include "../include/api.h"
 #include "internal.h"
 #include "file.h"
 #include "fork_and_exit.h"
 #include "parse.h"
 #include "version.h"
+#include "verify.h"
 
 /***
  * Get a new sxupdate handle
@@ -37,19 +42,54 @@ SXUPDATE_API void sxupdate_set_verbosity(sxupdate_t handle, unsigned char verbos
 static void sxupdate_free(sxupdate_t handle) {
   if(handle->http_headers)
     curl_slist_free_all(handle->http_headers);
-  handle->http_headers = NULL;
 
+  if(handle->public_key)
+    RSA_free(handle->public_key);
+
+  sxupdate_version_free(&handle->latest_version);
+
+  free(handle->latest_version_internal.signature);
   free(handle->url);
-  handle->url = NULL;
   yajl_helper_parse_state_free(&handle->parser.st);
 }
+
+
+#ifndef NO_SIGNATURE
+/**
+ * Set public key. This function must be called at least once before sxupdate_execute()
+ * can be run
+ */
+SXUPDATE_API void sxupdate_set_public_key(sxupdate_t handle, RSA *key) {
+  handle->no_public_key = 0;
+  if(handle->public_key)
+    RSA_free(handle->public_key);
+  if(!key) {
+    fprintf(stderr, "Warning! signature verification disabled. Not secure!!!!!\n");
+    handle->no_public_key = 1;
+    handle->public_key = NULL;
+  } else
+    handle->public_key = key;
+}
+
+SXUPDATE_API enum sxupdate_status sxupdate_set_public_key_from_file(sxupdate_t handle, const char *filepath) {
+  if(handle->public_key)
+    RSA_free(handle->public_key);
+  handle->no_public_key = 0;
+  if(handle->verbosity)
+    fprintf(stderr, "loading public key from file %s\n", filepath);
+  handle->public_key = sxupdate_public_key_from_pem_file(filepath);
+  if(!handle->public_key)
+    return sxupdate_status_error;
+  return sxupdate_status_ok;
+}
+
+#endif
 
 /***
  * Delete a handle that was created with sxupdate_new()
  */
 SXUPDATE_API void sxupdate_delete(sxupdate_t handle) {
   sxupdate_free(handle);
-  // if(!handle->no_heap)
   free(handle);
 }
 
@@ -132,6 +172,11 @@ static enum sxupdate_status sxupdate_ready(sxupdate_t handle) {
   }
   if(handle->url_is_file && handle->http_headers) {
     fprintf(stderr, "custom headers cannot be used with file:// url\n");
+    return sxupdate_status_error;
+  }
+
+  if(!handle->public_key && !handle->no_public_key) {
+    fprintf(stderr, "no public key set-- call sxupdate_set_public_key() before sxupdate_execute()\n");
     return sxupdate_status_error;
   }
 
@@ -241,11 +286,13 @@ static char *url_merge(const char *parent_url, const char *relative_url) {
  *
  * @return sxupdate_status_ok on success
  */
-static enum sxupdate_status sxupdate_download(const char *parent_url,
-                                              struct sxupdate_version *version,
-                                              struct curl_slist *http_headers,
-                                              char **save_path_p,
-                                              unsigned char verbosity) {
+static enum sxupdate_status sxupdate_download(sxupdate_t handle,
+                                              char **save_path_p) {
+  const char *parent_url = handle->url;
+  struct sxupdate_version *version = &handle->latest_version;
+  struct curl_slist *http_headers = handle->http_headers;
+  unsigned char verbosity = handle->verbosity;
+
   *save_path_p = NULL;
   char *resolved_url = NULL;
   if(sxupdate_is_relative_filename(version->enclosure.url)) {
@@ -309,8 +356,6 @@ static enum sxupdate_status sxupdate_download(const char *parent_url,
         if(res != CURLE_OK)
           fprintf(stderr, "Error connecting to %s:\n  %s\n", resolved_url, curl_easy_strerror(res));
         else {
-          // TO DO: check download file size, check signature
-
           // ensure saved_path has executable permissions
           if(!sxupdate_set_execute_permission(save_path))
             stat = sxupdate_status_ok;
@@ -355,10 +400,14 @@ SXUPDATE_API enum sxupdate_status sxupdate_execute(sxupdate_t handle) {
         // execute callback and proceed if it returns sxupdate_action_do_update
         if(handle->sync_cb(&handle->latest_version) == sxupdate_action_proceed) {
           char *downloaded_file_path;
-          stat = sxupdate_download(handle->url, &handle->latest_version, handle->http_headers, &downloaded_file_path, handle->verbosity);
+          stat = sxupdate_download(handle, &downloaded_file_path);
           if(stat == sxupdate_status_ok) {
-            if(fork_and_exit(downloaded_file_path, handle->verbosity))
-              stat = sxupdate_status_error;
+            // check download file size, check signature
+            stat = sxupdate_verify_signature(handle, downloaded_file_path);
+            if(stat == sxupdate_status_ok) {
+              if(fork_and_exit(downloaded_file_path, handle->verbosity))
+                stat = sxupdate_status_error;
+            }
           }
           free(downloaded_file_path);
         }

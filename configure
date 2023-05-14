@@ -18,9 +18,10 @@ Optional configuration:
   --arch=ARCH             use -march=ARCH. Set to 'none' for none, else defaults to 'native'
   --curl-prefix=DIR       specify directory, if not PREFIX, containing lib/libcurl and include/curl.h
 
-Installation directories:
+Installation and other directories:
   --prefix=PREFIX         main installation prefix [\$PREFIX or /usr/local]
   --exec-prefix=EPREFIX   installation prefix for bin, lib, include [PREFIX]
+  --ssl-prefix=PREFIX     dir that contains ssl includes and libraries
 
 Fine tuning of the installation directories:
   --sharedir=DIR          share directories [PREFIX/share]
@@ -265,8 +266,9 @@ elif [ "$EXEC_PREFIX" = "${EXEC_PREFIX#/}" ]; then
     EXEC_PREFIX="`pwd`/$EXEC_PREFIX"
 fi
 
-DOCDIR='$(PREFIX)/share/doc'
-MANDIR='$(PREFIX)/share/man'
+DOCDIR="$PREFIX/share/doc"
+MANDIR="$PREFIX/share/man"
+SSL_PREFIX="$PREFIX"
 
 MINIMAL=no
 
@@ -293,6 +295,7 @@ for arg ; do
         --exec-prefix=*) ;; # already handled EXEC_PREFIX=${arg#*=} ;;
         --docdir=*) DOCDIR=${arg#*=} ;;
         --mandir=*) MANDIR=${arg#*=} ;;
+        --ssl-prefix=*) SSL_PREFIX=${arg#*=} ;;
         --minimal|--minimal=yes) MINIMAL=yes;;
 
         --enable-lto|--enable-lto=yes) TRY_LTO=yes;;
@@ -317,7 +320,7 @@ done
 
 echo "config will be saved to $CONFIGFILE"
 
-for i in PREFIX EXEC_PREFIX DOCDIR MANDIR ; do
+for i in PREFIX EXEC_PREFIX DOCDIR MANDIR SSL_PREFIX; do
     stripdir $i
 done
 
@@ -485,7 +488,15 @@ if [ "$ARCH" != "none" ] ; then
 fi
 
 tryldflag LDFLAGS_OPT -ldl
-tryccfn CFLAGS_AUTO "memmem" "string.h"
+
+# check SSL headers
+OLDCCSEARCHPATH="$CCSEARCHPATH"
+CCSEARCHPATH="$CCSEARCHPATH $SSL_PREFIX/include"
+if ! trycchdr IGNORE openssl/rsa.h ; then
+    echo "Unable to locate openssl/rsa.h header. Use --ssl-prefix to set a custom location"
+    exit 1
+fi
+CCSEARCHPATH="$OLDCCSEARCHPATH"
 
 if [ "$CURL_PREFIX" == "" ] ; then
     CURL_PREFIX=$PREFIX
@@ -544,6 +555,10 @@ INCLUDEDIR = $EXEC_PREFIX/include
 
 DOCPREFIX = $DOCDIR
 MANPREFIX = $MANDIR
+
+SSL_PREFIX = $SSL_PREFIX
+
+
 CC = $CC
 AWK = $AWK
 MAKE = $MAKE
@@ -591,12 +606,13 @@ echo "****************************************************************"
 if [ "$CURL_PREFIX" != "$PREFIX" ]; then
     echo "*  - curl-prefix: $CURL_PREFIX"
 fi
-
+echo "*  - ssl-prefix: $SSL_PREFIX"
 
 echo "****************************************************************"
 
-if [ "$CONFIGFILE" != "config.mk" ];
-   CONFIGPARAM="CONFIGFILE=`realpath "$CONFIGFILE"`"
+if [ "$CONFIGFILE" != "config.mk" ]; then
+   REALPATH="$(realpath "$CONFIGFILE")"
+   CONFIGPARAM="CONFIGFILE=$REALPATH"
 else
     CONFIGPARAM=
 fi

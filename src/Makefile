@@ -29,7 +29,11 @@ BUILD_DIR=${THIS_MAKEFILE_DIR}/../build/${BUILD_SUBDIR}/${CCBN}
 
 INCLUDE_DIR+= -I${THIS_MAKEFILE_DIR}/../external/yajl/build/yajl-2.1.1/include -I${PREFIX}/include
 
-OBJ_SRC=api file fork_and_exit version parse
+ifneq ($(SSL_PREFIX),$(PREFIX))
+  INCLUDE_DIR+= -I${SSL_PREFIX}/include
+endif
+
+OBJ_SRC=verify api file fork_and_exit version parse
 
 CFLAGS+= ${CFLAGS_CURL} ${INCLUDE_DIR} -Wall -Wextra -Wno-missing-field-initializers -Wunused
 

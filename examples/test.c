@@ -32,6 +32,11 @@ int main(int argc, const char *argv[]) {
   if(!fgets_no_trailing_white(url, sizeof(url), stdin))
     return 1;
 
+  char pem_path[FILENAME_MAX];
+  fprintf(stderr, "Enter the path to the public key pem file used to check the installation file, or blank to skip signature checking\n");
+  if(!fgets_no_trailing_white(pem_path, sizeof(pem_path), stdin))
+    *pem_path = '\0';
+
   char have_file = 0;
   size_t len = strlen(url);
   if(len < 9 || memcmp(url, "https://", 8)) {
@@ -64,14 +69,24 @@ int main(int argc, const char *argv[]) {
 
   sxupdate_t sxu = sxupdate_new();
   if(sxu) {
+    int err = 0;
     sxupdate_set_verbosity(sxu, 5);
-    sxupdate_set_current_version(sxu, get_version);
-    sxupdate_on_update_available(sxu, ask_to_proceed);
-    sxupdate_set_url(sxu, url);
-    if(have_custom_header)
-      sxupdate_add_header(sxu, header_name, header_value);
-    if(sxupdate_execute(sxu))
-      fprintf(stderr, "Error: %s\n", sxupdate_err_msg(sxu));
+
+    if(*pem_path == '\0')
+      sxupdate_set_public_key(sxu, NULL);
+    else {
+      if(sxupdate_set_public_key_from_file(sxu, pem_path) != sxupdate_status_ok)
+        err = 1;
+    }
+    if(!err) {
+      sxupdate_set_current_version(sxu, get_version);
+      sxupdate_on_update_available(sxu, ask_to_proceed);
+      sxupdate_set_url(sxu, url);
+      if(have_custom_header)
+        sxupdate_add_header(sxu, header_name, header_value);
+      if(sxupdate_execute(sxu))
+        fprintf(stderr, "Error: %s\n", sxupdate_err_msg(sxu));
+    }
     sxupdate_delete(sxu);
   }
 }

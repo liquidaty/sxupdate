@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "parse.h"
+#include "verify.h"
 
 static int sxupdate_process_value(struct yajl_helper_parse_state *st, struct json_value *value) {
   sxupdate_t handle = yajl_helper_data(st);
@@ -153,6 +154,16 @@ static int sxupdate_parse_ok(sxupdate_t handle) {
     err = fprintf(stderr, "Invalid or unspecified version major, minor and/or patch\n");
 
   // TO DO: check signature!
+  if(!handle->no_public_key) {
+    if(!v->enclosure.signature)
+      err = fprintf(stderr, "Version enclosure: missing signature\n");
+    else {
+      if(sxupdate_set_signature_from_b64(handle, v->enclosure.signature)
+         != sxupdate_status_ok)
+        err = fprintf(stderr, "Version enclosure: unable to convert signature from base64\n");
+    }
+  } else if(v->enclosure.signature)
+    err = fprintf(stderr, "Version is signed, but no public key provided to verify\n");
 
   if(err)
     return 0; // not ok

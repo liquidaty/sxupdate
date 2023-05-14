@@ -88,7 +88,7 @@ int fork_and_exit(char *executable_path, unsigned char verbosity) {
     if(size)
       printf("CreateProcess failed with error x: %s\n", messageBuffer);
     else
-      printf("CreateProcess failed with error: %d\n", errorMessageID);
+      printf("CreateProcess failed with error: %lu\n", errorMessageID);
     LocalFree(messageBuffer);
     return 1;
   }
