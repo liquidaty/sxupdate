@@ -127,30 +127,11 @@ SXUPDATE_API void sxupdate_delete(sxupdate_t handle) {
 
 /***
  * Set the callback that will be called in the event an updated version is available
- * Use this if your callback will execute synchronously
  */
-SXUPDATE_API void sxupdate_on_update_available(sxupdate_t handle,
-                                               enum sxupdate_action (*cb)(const struct sxupdate_version *version)
-                                               ) {
-  handle->sync_cb = cb;
+SXUPDATE_API void sxupdate_set_interaction_handler(sxupdate_t handle,
+                                                   sxupdate_interaction_handler handler) {
+  handle->interaction_handler = handler;
 }
-
-/***
- * TO DO:
- * Set the async callback that will be called in the event an updated version is available
- * Use this if your callback will execute asynchronously
- * To proceed, the callback should call proceed(handle)
- * To ignore, the callback should call ignore(ignore_ctx)
-void sxupdate_on_update_available_async(sxupdate_t handle,
-                                        void (*cb)(const struct sxupdate_version *version,
-                                                   void (*proceed)(sxupdate_t *),
-                                                   void (*ignore)(void *ctx),
-                                                   void *ignore_ctx)
-                                        ) {
-  fprintf(stderr, "sxupdate_on_update_available_async not yet implemented!\n");
-  // handle->async_cb = cb;
-}
- **/
 
 
 /***
@@ -200,7 +181,7 @@ static enum sxupdate_status sxupdate_ready(sxupdate_t handle) {
     fprintf(stderr, "get_current_version callback not set\n");
     return sxupdate_status_error;
   }
-  if(!handle->url || !handle->sync_cb) {
+  if(!handle->url || !handle->interaction_handler) {
     fprintf(stderr, "url or on_update_available callback not set\n");
     return sxupdate_status_error;
   }
@@ -243,9 +224,14 @@ static size_t sxupdate_parse_chunk(char *ptr, size_t size, size_t nmemb, void *h
 /***
  * Fetch and parse the metadata
  *
- * @param contentp: on success, will be assigned the location of the fetched content
+ * This implementation is synchronous, but, we use a callback because future
+ * implementations in other contexts (e.g. web assembly) might be async.
  */
-static enum sxupdate_status sxupdate_fetch_and_parse(sxupdate_t handle, struct curl_slist *http_headers) {
+static
+enum sxupdate_status sxupdate_fetch_and_parse(sxupdate_t handle,
+                                              struct curl_slist *http_headers,
+                                              void (*next)(sxupdate_t, enum sxupdate_status)
+                                              ) {
   enum sxupdate_status stat = sxupdate_status_error;
   if(handle->url
      && (stat = sxupdate_parse_init(handle)) == sxupdate_status_ok) { // initialize parser
@@ -303,6 +289,7 @@ static enum sxupdate_status sxupdate_fetch_and_parse(sxupdate_t handle, struct c
     if(stat == sxupdate_status_ok)
       stat = sxupdate_parse_finish(handle);
   }
+  next(handle, stat);
   return stat;
 }
 
@@ -437,6 +424,46 @@ static enum sxupdate_status sxupdate_download(sxupdate_t handle,
   return stat;
 }
 
+static void sxupdate_resume(sxupdate_t handle, enum sxupdate_action action) {
+  enum sxupdate_status stat = sxupdate_status_ok;
+  if(action == sxupdate_action_proceed && handle->step == sxupdate_step_have_newer_version) {
+    char *downloaded_file_path;
+    stat = sxupdate_download(handle, &downloaded_file_path);
+    if(stat == sxupdate_status_ok) {
+      // TO DO: check download file size
+
+      // check signature
+      stat = sxupdate_verify_signature(handle, downloaded_file_path);
+      if(stat == sxupdate_status_ok) {
+        if(fork_and_exit(downloaded_file_path, handle->installer_args, handle->verbosity))
+          stat = sxupdate_status_error;
+      }
+    }
+    free(downloaded_file_path);
+  }
+}
+
+static void sxupdate_after_fetch_and_parse(sxupdate_t handle, enum sxupdate_status stat) {
+  if(stat == sxupdate_status_ok) {
+    // check if this version is newer
+    if(sxupdate_version_cmp(handle->latest_version.version, handle->get_current_version(), handle->verbosity) > 0)
+      handle->step = sxupdate_step_have_newer_version;
+    else
+      handle->step = sxupdate_step_already_up_to_date;
+
+    // execute callback and proceed if it returns sxupdate_action_do_update
+    handle->interaction_handler(handle, handle->step, sxupdate_resume);
+  }
+}
+
+/***
+ * Get a pointer to the latest version, as defined by the fetched metadata
+ * For use within your interaction handler, for example to display a message
+ * to the user containing details about the new available version
+ */
+const struct sxupdate_version *sxupdate_get_version(sxupdate_t handle) {
+  return &handle->latest_version;
+}
 
 /***
  * Execute the update
@@ -450,29 +477,7 @@ SXUPDATE_API enum sxupdate_status sxupdate_execute(sxupdate_t handle) {
   if((stat = sxupdate_ready(handle)) == sxupdate_status_ok) {
 
     // fetch the update metadata
-    if((stat = sxupdate_fetch_and_parse(handle, handle->http_headers)) == sxupdate_status_ok) {
-
-      // check if this version is newer
-      if(sxupdate_version_cmp(handle->latest_version.version, handle->get_current_version(), handle->verbosity) > 0) {
-//        handle->progress = sxupdate_progress_have_newer_version;
-        // execute callback and proceed if it returns sxupdate_action_do_update
-        if(handle->sync_cb(&handle->latest_version) == sxupdate_action_proceed) {
-          char *downloaded_file_path;
-//          handle->progress = sxupdate_progress_downloading;
-          stat = sxupdate_download(handle, &downloaded_file_path);
-          if(stat == sxupdate_status_ok) {
-            // check download file size, check signature
-//            handle->progress = sxupdate_progress_verifying;
-            stat = sxupdate_verify_signature(handle, downloaded_file_path);
-            if(stat == sxupdate_status_ok) {
-              if(fork_and_exit(downloaded_file_path, handle->installer_args, handle->verbosity))
-                stat = sxupdate_status_error;
-            }
-          }
-          free(downloaded_file_path);
-        }
-      }
-    }
+    stat = sxupdate_fetch_and_parse(handle, handle->http_headers, sxupdate_after_fetch_and_parse);
   }
   return stat;
 }

@@ -10,12 +10,28 @@ static char *fgets_no_trailing_white(char * restrict str, int size, FILE * restr
   return s && *s ? s : NULL;
 }
 
-static enum sxupdate_action ask_to_proceed(const struct sxupdate_version *version) {
-  fprintf(stderr, "A newer version of this software is available. Download and update now (Y)?\n");
-  char answer[200];
-  if(fgets_no_trailing_white(answer, sizeof(answer), stdin) && *answer && strchr("Yy", *answer))
-    return sxupdate_action_proceed;
-  return sxupdate_action_abort;
+static void interaction_handler(sxupdate_t handle, enum sxupdate_step step,
+                                void (*resume)(sxupdate_t, enum sxupdate_action)) {
+  switch(step) {
+  case sxupdate_step_have_newer_version:
+    fprintf(stderr, "A newer version of this software is available. Download and update now (Y)?\n");
+    {
+      char answer[200];
+      if(fgets_no_trailing_white(answer, sizeof(answer), stdin) && *answer && strchr("Yy", *answer))
+        resume(handle, sxupdate_action_proceed);
+      else {
+        fprintf(stderr, "Update cancelled\n");
+        resume(handle, sxupdate_action_abort);
+      }
+    }
+    break;
+  case sxupdate_step_already_up_to_date:
+    fprintf(stderr, "This version is already up-to-date\n");
+    // intentional fall-through
+  default:
+    resume(handle, sxupdate_action_none);
+    break;
+  }
 }
 
 struct sxupdate_semantic_version get_version() {
@@ -105,7 +121,7 @@ int main(int argc, const char *argv[]) {
 
     if(!err) {
       sxupdate_set_current_version(sxu, get_version);
-      sxupdate_on_update_available(sxu, ask_to_proceed);
+      sxupdate_set_interaction_handler(sxu, interaction_handler);
       sxupdate_set_url(sxu, url);
       if(have_custom_header)
         sxupdate_add_header(sxu, header_name, header_value);

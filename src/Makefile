@@ -36,8 +36,14 @@ endif
 OBJ_SRC=verify api file fork_and_exit version parse
 
 PKGCONFIGLIBS=
+ifeq ($(USE_BUNDLED_YAJL_HELPER),1)
+  OBJ_SRC+=external/yajl_helper/yajl_helper
+else
+  PKGCONFIGLIBS+=-lyajl_helper
+endif
+
 ifeq ($(USE_BUNDLED_YAJL),1)
-  OBJ_SRC+=external/yajl_helper/yajl_helper external/yajl/src/yajl_parser external/yajl/src/yajl_alloc external/yajl/src/yajl_lex external/yajl/src/yajl_gen external/yajl/src/yajl_tree external/yajl/src/yajl_version external/yajl/src/yajl_buf external/yajl/src/yajl external/yajl/src/yajl_encode
+  OBJ_SRC+=external/yajl/src/yajl_parser external/yajl/src/yajl_alloc external/yajl/src/yajl_lex external/yajl/src/yajl_gen external/yajl/src/yajl_tree external/yajl/src/yajl_version external/yajl/src/yajl_buf external/yajl/src/yajl external/yajl/src/yajl_encode
 else
   PKGCONFIGLIBS+=-lyajl
 endif

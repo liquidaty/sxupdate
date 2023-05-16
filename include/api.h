@@ -16,10 +16,27 @@ enum sxupdate_status {
   sxupdate_status_parse    /* parse error */
 };
 
-enum sxupdate_action {
-  sxupdate_action_proceed = 100,
-  sxupdate_action_abort = 200
+enum sxupdate_step {
+  sxupdate_step_none = 0,
+  sxupdate_step_already_up_to_date, /* update info found and parsed, no new version */
+  sxupdate_step_have_newer_version, /* newer version is available */
 };
+
+enum sxupdate_action {
+  sxupdate_action_none = 0,
+  sxupdate_action_proceed,
+  sxupdate_action_abort
+};
+
+/***
+ * Caller-defined handler for user interactions. When the user interaction is
+ * complete, your handler should call `next()` with the appropriate action.
+ * The `next()` function must be called exactly once, even if the action is
+ * sxupdate_action_abort or sxupdate_action_none
+ */
+typedef void (*sxupdate_interaction_handler)(sxupdate_t handle, enum sxupdate_step,
+                                      void (*resume)(sxupdate_t, enum sxupdate_action)
+                                      );
 
 struct sxupdate_semantic_version { /* see https://semver.org */
   int major;
@@ -46,11 +63,23 @@ struct sxupdate_version { // structure for an appcast item
   } enclosure;
 };
 
-
 /***
  * Get a new sxupdate handle
  **/
 sxupdate_t sxupdate_new();
+
+/***
+ * Set the callback that will be called in the event an updated version is available
+ */
+void sxupdate_set_interaction_handler(sxupdate_t handle,
+                                      sxupdate_interaction_handler handler);
+
+/***
+ * Get a pointer to the latest version, as defined by the fetched metadata
+ * For use within your interaction handler, for example to display a message
+ * to the user containing details about the new available version
+ */
+const struct sxupdate_version *sxupdate_get_version(sxupdate_t);
 
 /***
  * Delete a handle that was created with sxupdate_new()
@@ -79,14 +108,6 @@ enum sxupdate_status sxupdate_add_installer_arg(sxupdate_t handle, const char *v
  */
 void sxupdate_set_current_version(sxupdate_t handle,
                                   struct sxupdate_semantic_version (*cb)());
-
-/***
- * Set the callback that will be called in the event an updated version is available
- * Use this if your callback will execute synchronously
- */
-void sxupdate_on_update_available(sxupdate_t handle,
-                                  enum sxupdate_action (*cb)(const struct sxupdate_version *version));
-
 /***
  * Set the url used to fetch the version info. The url value can be transient, and must
  * start with http:// or file://

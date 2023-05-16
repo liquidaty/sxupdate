@@ -77,38 +77,37 @@ all: ${TEST_EXE} ${DUMMY_INSTALLER}
 
 test-simple: ${TEST_EXE} ${DUMMY_INSTALLER} ${BUILD_DIR}/dummy_appcast.json ../test_assets/public_key.pem
 ifeq ($(WIN),0)
-	echo 'file://${BUILD_DIR}/dummy_appcast.json\nY' | ${TEST_EXE}
+	@OUTSTR="`(echo Y | (SXUPDATE_URL=file://${BUILD_DIR}/dummy_appcast.json SXUPDATE_INSTALLER_ARGUMENT= SXUPDATE_PEMFILE=../test_assets/public_key.pem ${TEST_EXE})) 2>/dev/null`" && if [ "$$OUTSTR" = "Success! If this were the real thing, it would be installing your new version now" ] ; then echo Success; else echo 'Fail!'; fi
 else
-	echo "Built $^"
+	@echo "Built $^"
 endif
 
 ../test_assets/private_key.pem:
-	openssl genpkey -algorithm RSA -out $@
+	@openssl genpkey -algorithm RSA -out $@
 
 ../test_assets/public_key.pem: ../test_assets/private_key.pem
-	openssl rsa -pubout -in $< -out $@
+	@openssl rsa -pubout -in $< -out $@
 
 ${BUILD_DIR}/dummy_appcast.json: simple/appcast.json.in ${BUILD_DIR}/dummy_signature.txt
 	@mkdir -p `dirname "$@"`
-	cat $< | sed 's#THIS_DIR#${BUILD_DIR}#' | sed "s@SIGNATURE@`cat ${BUILD_DIR}/dummy_signature.txt`@" > $@.tmp
-	mv $@.tmp $@
+	@cat $< | sed 's#THIS_DIR#${BUILD_DIR}#' | sed "s@SIGNATURE@`cat ${BUILD_DIR}/dummy_signature.txt`@" > $@.tmp
+	@mv $@.tmp $@
 
 ${BUILD_DIR}/dummy_signature.txt: ${BUILD_DIR}/dummy_signature.sig
-#	openssl dgst -sha256 -sign ../test_assets/private_key.pem ${DUMMY_INSTALLER} | openssl base64 -A > $@
-	openssl base64 -A -in $< > $@
+	@openssl base64 -A -in $< > $@
 
 clean:
-	rm -rf ${TEST_EXE} ${BUILD_DIR}
+	@rm -rf ${TEST_EXE} ${BUILD_DIR}
 
 ${DUMMY_INSTALLER}: simple/dummy_installer.c
 	@mkdir -p `dirname "$@"`
-	${CC} ${CFLAGS} -I${INCLUDEDIR} $< -o $@
+	@${CC} ${CFLAGS} -I${INCLUDEDIR} $< -o $@
 
 ${BUILD_DIR}/dummy_signature.sig: ${DUMMY_INSTALLER} ../test_assets/private_key.pem
-	openssl dgst -sha256 -sign ../test_assets/private_key.pem -out $@ $<
+	@openssl dgst -sha256 -sign ../test_assets/private_key.pem -out $@ $<
 
 ${TEST_EXE}: test.c
 	@mkdir -p `dirname "$@"`
-	${CC} ${CFLAGS} -I${INCLUDEDIR} $< -o $@  ${LDFLAGS}
+	@${CC} ${CFLAGS} -I${INCLUDEDIR} $< -o $@  ${LDFLAGS}
 
 # to verify: openssl dgst -sha256 -verify public_key.pem -signature win/dummy_signature.sig win/dummy_installer.exe

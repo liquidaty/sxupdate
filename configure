@@ -34,6 +34,8 @@ Optional features:
   --enable-pie            build with position independent executables [auto]
   --enable-pic            build with position independent shared libraries [auto]
   --curl-static           compile with static curl lib using flags specified by CURL_PREFIX/bin/curl-config
+  --use-bundled-yajl      use bundled yajl instead of installed version [yes]
+  --use-bundled-yajl_helper use bundled yajl_helper instead of installed version [auto]
 
 Some influential environment variables:
   CC                      C compiler command [detected]
@@ -128,7 +130,7 @@ tryccfn () {
 int main() {$1;}
 EOF
     if [ "$DEBUG" = "1" ]; then
-        echo "cmd: $CC -o '$tmpo' '$tmpc'"
+        echo "cmd: $CC -o '$tmpo' '$tmpc' $3"
         echo "tmpc:"
         cat "$tmpc"
         DEBUG=0
@@ -266,6 +268,9 @@ MINIMAL=no
 TRY_LTO=no
 TRY_WHOLE_PROGRAM=auto
 
+USE_BUNDLED_YAJL=1
+USE_BUNDLED_YAJL_HELPER=auto
+
 help=yes
 
 for arg ; do
@@ -297,6 +302,12 @@ for arg ; do
 
         --enable-whole-program|--enable-whole-program=yes) TRY_WHOLE_PROGRAM=yes ;;
         --disable-whole-program|--enable-whole-program=no) TRY_WHOLE_PROGRAM=no ;;
+
+        --use-bundled-yajl|--use-bundled-yajl=yes) USE_BUNDLED_YAJL=1 ;;
+        --no-bundled-yajl|--use-bundled-yajl=no) USE_BUNDLED_YAJL=0 ;;
+
+        --use-bundled-yajl_helper|--use-bundled-yajl_helper=yes) USE_BUNDLED_YAJL_HELPER=1 ;;
+        --no-bundled-yajl_helper|--no-bundled-yajl_helper=yes) USE_BUNDLED_YAJL_HELPER=0 ;;
 
         --enable-*|--disable-*|--with-*|--without-*|--*dir=*|--build=*) ;;
         -* ) echo "$0: unknown option $arg" ;;
@@ -489,11 +500,35 @@ if ! trycchdr IGNORE openssl/rsa.h ; then
 fi
 CCSEARCHPATH="$OLDCCSEARCHPATH"
 
-USE_BUNDLED_YAJL=0
-echo "checking for yajl with yajl_error"
-if ! tryccfn "yajl_callbacks c; c.yajl_error = NULL;" "yajl/yajl_parse.h" "-c"; then
+if [ "$USE_BUNDLED_YAJL" = "1" ]; then
     echo "Using bundled yajl"
-    USE_BUNDLED_YAJL=1
+else # [ "$USE_BUNDLED_YAJL" = "auto" ] || [ "$USE_BUNDLED_YAJL" = "0" ]; then
+    echo "checking for yajl with yajl_error"
+    if ! tryccfn "yajl_callbacks c; c.yajl_error = NULL" "yajl/yajl_parse.h" "-I$PREFIX/include -L$PREFIX/lib -lyajl"; then
+        if [ "$USE_BUNDLED_YAJL" = "0" ] ; then
+            echo "Unable to find yajl library (with yajl_error) and --no-bundled-yajl specified"
+            exit 1
+        fi
+        YAJL_INCLUDE=src/external/yajl/build/yajl-2.1.1/include
+        echo "Using bundled yajl"
+        USE_BUNDLED_YAJL=1
+    else
+        YAJL_INCLUDE=${PREFIX}/include
+    fi
+fi
+
+if [ "$USE_BUNDLED_YAJL_HELPER" = "1" ]; then
+    echo "Using bundled yajl_helper"
+else # [ "$USE_BUNDLED_YAJL_HELPER" = "auto" ] || [ "$USE_BUNDLED_YAJL_HELPER" = "0" ]; then
+    echo "checking for yajl_helper"
+    if ! tryccfn "struct yajl_helper_parse_state st = {0}" "yajl_helper/yajl_helper.h" "-I$PREFIX/include -I${YAJL_INCLUDE} -L$PREFIX/lib -lyajl_helper"; then
+        if [ "$USE_BUNDLED_YAJL_HELPER" = "0" ] ; then
+            echo "Unable to find yajl_helper library and --no-bundled-yajl_helper specified"
+            exit 1
+        fi
+        echo "Using bundled yajl_helper"
+        USE_BUNDLED_YAJL_HELPER=1
+    fi
 fi
 
 if [ "$CURL_PREFIX" == "" ] ; then
@@ -590,6 +625,7 @@ CFLAGS_VECTORIZE_ALL = $CFLAGS_VECTORIZE_ALL
 CFLAGS_OPENMP = $CFLAGS_OPENMP
 
 USE_BUNDLED_YAJL = $USE_BUNDLED_YAJL
+USE_BUNDLED_YAJL_HELPER = $USE_BUNDLED_YAJL_HELPER
 
 $NO_HAVE
 $USE_LIBS

@@ -18,7 +18,8 @@ struct sxupdate_data {
     struct yajl_helper_parse_state st;
   } parser;
   struct sxupdate_semantic_version (*get_current_version)();
-  enum sxupdate_action (*sync_cb)(const struct sxupdate_version *version);
+  sxupdate_interaction_handler interaction_handler;
+  enum sxupdate_step step; // what step we are currently processing
 
   char *url;
   struct sxupdate_string_list *installer_args, **installer_args_next;
@@ -38,7 +39,8 @@ struct sxupdate_data {
 
   unsigned char url_is_file:1;
   unsigned char no_public_key:1;
-  unsigned char _:6;
+  unsigned char got_version:1;
+  unsigned char _:5;
 };
 
 

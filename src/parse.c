@@ -5,8 +5,19 @@
 #include "parse.h"
 #include "verify.h"
 
+static int sxupdate_end_map(struct yajl_helper_parse_state *st) {
+//  struct yajl_helper_parse_state *st = ctx;
+  sxupdate_t handle = yajl_helper_data(st);
+  if(yajl_helper_got_path(st, 2, "{items["))
+    handle->got_version = 1;
+  return 1;
+}
+
 static int sxupdate_process_value(struct yajl_helper_parse_state *st, struct json_value *value) {
   sxupdate_t handle = yajl_helper_data(st);
+  if(handle->got_version) // already parsed a version, so nothing else to do
+    return 1;
+
   char **str_target = NULL;
   int *int_target = NULL;
   size_t *sz_target = NULL;
@@ -203,7 +214,7 @@ enum sxupdate_status sxupdate_parse_init(sxupdate_t handle) {
   handle->parser.stat =
     yajl_helper_parse_state_init(&handle->parser.st, 32,
                                  NULL, // start_map,
-                                 NULL, // end_map,
+                                 sxupdate_end_map,
                                  NULL, // map_key,
                                  NULL, // start_array,
                                  NULL, // end_array,
