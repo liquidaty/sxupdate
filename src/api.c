@@ -454,13 +454,15 @@ SXUPDATE_API enum sxupdate_status sxupdate_execute(sxupdate_t handle) {
 
       // check if this version is newer
       if(sxupdate_version_cmp(handle->latest_version.version, handle->get_current_version(), handle->verbosity) > 0) {
-
+//        handle->progress = sxupdate_progress_have_newer_version;
         // execute callback and proceed if it returns sxupdate_action_do_update
         if(handle->sync_cb(&handle->latest_version) == sxupdate_action_proceed) {
           char *downloaded_file_path;
+//          handle->progress = sxupdate_progress_downloading;
           stat = sxupdate_download(handle, &downloaded_file_path);
           if(stat == sxupdate_status_ok) {
             // check download file size, check signature
+//            handle->progress = sxupdate_progress_verifying;
             stat = sxupdate_verify_signature(handle, downloaded_file_path);
             if(stat == sxupdate_status_ok) {
               if(fork_and_exit(downloaded_file_path, handle->installer_args, handle->verbosity))

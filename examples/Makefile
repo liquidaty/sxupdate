@@ -48,19 +48,14 @@ endif
 TEST_EXE=${BUILD_DIR}/test${EXE}
 DUMMY_INSTALLER=${BUILD_DIR}/dummy_installer${EXE}
 
-YAJL_SRC_DIR=${THIS_MAKEFILE_DIR}/../external/yajl
-YAJL_SRC1=yajl yajl_alloc yajl_buf yajl_encode yajl_gen yajl_lex yajl_parser yajl_tree yajl_version
-YAJL_SRC=$(addprefix ${YAJL_SRC_DIR}/src/,$(addsuffix .c,${YAJL_SRC1}))
-
 ifneq ($(SSL_PREFIX),$(PREFIX))
   INCLUDEDIR+= -I${SSL_PREFIX}/include
   LDFLAGS+=-L${SSL_PREFIX}/lib
 endif
-INCLUDEDIR+= -I${YAJL_SRC_DIR}/build/yajl-2.1.1/include
 
-LDFLAGS+= -lsxupdate -lyajl_helper ${LDFLAGS_CURL} -L${LIBDIR}
+LDFLAGS+=$(shell pkg-config --libs sxupdate)
 ifneq ($(UNAME_S),Darwin)
-  LDFLAGS+=-static -lbcrypt
+  LDFLAGS+=-static # -lbcrypt
 else
   ifneq ($(WIN),0)
     LDFLAGS+=-static -lbcrypt
@@ -107,13 +102,13 @@ clean:
 
 ${DUMMY_INSTALLER}: simple/dummy_installer.c
 	@mkdir -p `dirname "$@"`
-	${CC} ${CFLAGS} -I${INCLUDEDIR} $< ${YAJL_SRC} -o $@
+	${CC} ${CFLAGS} -I${INCLUDEDIR} $< -o $@
 
 ${BUILD_DIR}/dummy_signature.sig: ${DUMMY_INSTALLER} ../test_assets/private_key.pem
 	openssl dgst -sha256 -sign ../test_assets/private_key.pem -out $@ $<
 
 ${TEST_EXE}: test.c
 	@mkdir -p `dirname "$@"`
-	${CC} ${CFLAGS} -I${INCLUDEDIR} $< ${YAJL_SRC} -o $@  ${LDFLAGS}
+	${CC} ${CFLAGS} -I${INCLUDEDIR} $< -o $@  ${LDFLAGS}
 
 # to verify: openssl dgst -sha256 -verify public_key.pem -signature win/dummy_signature.sig win/dummy_installer.exe

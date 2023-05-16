@@ -120,14 +120,13 @@ NO_$upper2 = 1"
 # tryccfn flag_name main_content header_file [ld flags]
 tryccfn () {
     rm -f "$tmpc"
-    printf "checking whether compiler accepts %s from %s..." "$2" "$3"
-    if [ "$3" != "" ]; then
-        printf "%s\n" $3 | sed 's/\(.*\)/#include <\1>/' >> "$tmpc"
+    printf "checking whether compiler accepts %s from %s..." "$1" "$2"
+    if [ "$2" != "" ]; then
+        printf "%s\n" $2 | sed 's/\(.*\)/#include <\1>/' >> "$tmpc"
     fi
     cat >> "$tmpc" <<EOF
-int main() {$2;}
+int main() {$1;}
 EOF
-    flag=$(echo "$2" | cut -d'(' -f1 | tr a-z A-Z)
     if [ "$DEBUG" = "1" ]; then
         echo "cmd: $CC -o '$tmpo' '$tmpc'"
         echo "tmpc:"
@@ -135,19 +134,11 @@ EOF
         DEBUG=0
     fi
 
-    if $CC -o "$tmpo" "$tmpc" $4 >/dev/null 2>&1 ; then
-        eval "vars=\$$1"
-        if ! printf "%s\n" ${vars} | grep "\-DHAVE_${flag}\$" >/dev/null 2>&1; then
-            flag="-DHAVE_${flag}"
-            eval "$1=\"\${vars} \${flag}\""
-            eval "$1=\${$1# }"
-        fi
+    if $CC -o "$tmpo" "$tmpc" $3 >/dev/null 2>&1 ; then
         printf "yes\n"
         return 0
     else
         printf "no\n"
-        NO_HAVE="$NO_HAVE
-NO_$flag = 1"
         echo "------" >> $CONFIGFILE.log
         echo "Failed: $CC -o $tmpo tmp.c" >> $CONFIGFILE.log
         cat "$tmpc" >> $CONFIGFILE.log
@@ -498,6 +489,13 @@ if ! trycchdr IGNORE openssl/rsa.h ; then
 fi
 CCSEARCHPATH="$OLDCCSEARCHPATH"
 
+USE_BUNDLED_YAJL=0
+echo "checking for yajl with yajl_error"
+if ! tryccfn "yajl_callbacks c; c.yajl_error = NULL;" "yajl/yajl_parse.h" "-c"; then
+    echo "Using bundled yajl"
+    USE_BUNDLED_YAJL=1
+fi
+
 if [ "$CURL_PREFIX" == "" ] ; then
     CURL_PREFIX=$PREFIX
 fi
@@ -508,7 +506,7 @@ if [ "$CURL_STATIC" == "yes" ]; then
     LDFLAGS_CURL="`$CURL_PREFIX/bin/curl-config --static-libs`"
     CFLAGS_CURL="`$CURL_PREFIX/bin/curl-config --cflags`"
     CC="$CC $CFLAGS_CURL"
-    if ! tryccfn IGNORE "curl_version()" "curl/curl.h" "$LDFLAGS_CURL"; then
+    if ! tryccfn "curl_version()" "curl/curl.h" "$LDFLAGS_CURL"; then
         echo "Error: Failed to compile with static curl library"
         exit 1
     fi
@@ -520,7 +518,7 @@ else
     LDFLAGS_CURL="-L$CURL_PREFIX/lib -lcurl"
     CFLAGS_CURL=-I$CURL_PREFIX/include
     CC="$CC $CFLAGS_CURL"
-    if ! tryccfn IGNORE "curl_version()" "curl/curl.h" "$LDFLAGS_CURL"; then
+    if ! tryccfn "curl_version()" "curl/curl.h" "$LDFLAGS_CURL"; then
         echo "Error: Failed to compile with dynamic curl library using:"
         echo "  CFLAGS_CURL=$CFLAGS_CURL"
         echo "  LDFLAGS_CURL=$LDFLAGS_CURL"
@@ -590,6 +588,8 @@ CFLAGS_VECTORIZE_OPTIMIZED = $CFLAGS_VECTORIZE_OPTIMIZED
 CFLAGS_VECTORIZE_MISSED = $CFLAGS_VECTORIZE_MISSED
 CFLAGS_VECTORIZE_ALL = $CFLAGS_VECTORIZE_ALL
 CFLAGS_OPENMP = $CFLAGS_OPENMP
+
+USE_BUNDLED_YAJL = $USE_BUNDLED_YAJL
 
 $NO_HAVE
 $USE_LIBS

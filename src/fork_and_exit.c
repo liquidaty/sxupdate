@@ -129,9 +129,10 @@ int fork_and_exit(char *executable_path, struct sxupdate_string_list *args,
 
   if(pid == 0) {
     size_t argc = 1;
-    for(struct sxupdate_string_list *arg = *args; arg; arg = arg->next)
+    for(struct sxupdate_string_list *arg = args; arg; arg = arg->next)
       argc++;
-    char *argv[argc];
+
+    char **argv = calloc(argc + 1, sizeof(*argv));
     if(!argv) {
       fprintf(stderr, "Out of memory!");
       return 1;
@@ -139,12 +140,15 @@ int fork_and_exit(char *executable_path, struct sxupdate_string_list *args,
 
     argv[0] = executable_path;
     int i = 1;
-    for(struct sxupdate_string_list *arg = *args; arg; arg = arg->next)
+    for(struct sxupdate_string_list *arg = args; arg; arg = arg->next)
       argv[i++] = arg->value;
     argv[i++] = NULL;
 
     execv(argv[0], argv);
+    // if execv succeeds, we won't get here and the OS will free argv
+    // otherwise, execv failed and we need to free argv ourselves
     fprintf(stderr, "Execv Failed");
+    free(argv);
     return 1;
   }
 #endif

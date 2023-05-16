@@ -73,6 +73,7 @@ static int sxupdate_process_value(struct yajl_helper_parse_state *st, struct jso
 
 /* simple helper to check for case-insensitive ascii suffix */
 static int str_ends_with(const char *s, const char *suffix) {
+  if(!s) return 0;
   size_t len = s ? strlen(s) : 0;
   if(len > strlen(suffix)) {
     size_t j = 0;
@@ -87,6 +88,7 @@ static int str_ends_with(const char *s, const char *suffix) {
 }
 
 int sxupdate_url_is_file(const char *s) {
+  if(!s) return 0;
   size_t len = strlen(s);
   if(len > 8 && !memcmp(s, SXUPDATE_FILE_PREFIX, 7))
     return 1;
@@ -94,6 +96,7 @@ int sxupdate_url_is_file(const char *s) {
 }
 
 int sxupdate_url_is_https(const char *s) {
+  if(!s) return 0;
   size_t len = strlen(s);
   if(len > 9 && !memcmp(s, SXUPDATE_HTTPS_PREFIX, 8))
     return 1;
@@ -105,6 +108,7 @@ int sxupdate_url_is_https(const char *s) {
  * return 1 if s only contains alphanumeric characters, dash, slash, underscore and period",
  **/
 int sxupdate_is_relative_filename(const char *s) {
+  if(!s) return 0;
   size_t len = s ? strlen(s) : 0;
   if(!len)
     return 0;
@@ -133,19 +137,20 @@ static int sxupdate_parse_ok(sxupdate_t handle) {
   struct sxupdate_version *v = &handle->latest_version;
   int err = 0;
 
-  // if filename ends with .exe, remove that suffix
-  if(str_ends_with(v->enclosure.filename, ".exe"))
-    v->enclosure.filename[strlen(v->enclosure.filename) - 4] = '\0';
-
   // check filename
   if(!v->enclosure.filename || !*v->enclosure.filename)
     err = fprintf(stderr, "Version enclosure: missing filename\n");
+  else if(str_ends_with(v->enclosure.filename, ".exe"))
+    // if filename ends with .exe, remove that suffix
+    v->enclosure.filename[strlen(v->enclosure.filename) - 4] = '\0';
 
   // check url
   if(!v->enclosure.url)
     err = fprintf(stderr, "Version enclosure: missing url\n");
 
-  if(!sxupdate_url_is_https(v->enclosure.url) && !sxupdate_url_is_file(v->enclosure.url)
+  if(v->enclosure.url
+     && !sxupdate_url_is_https(v->enclosure.url)
+     && !sxupdate_url_is_file(v->enclosure.url)
      && !sxupdate_is_relative_filename(v->enclosure.url))
     err = fprintf(stderr, "Version enclosure: bad url (%s)\n", v->enclosure.url);
 
