@@ -25,7 +25,7 @@ else
   BUILD_SUBDIR=win/${DBG_SUBDIR}
 endif
 CCBN=$(shell basename ${CC})
-BUILD_DIR=$(shell cd ${THIS_MAKEFILE_DIR}/../build/${BUILD_SUBDIR}/${CCBN} && pwd)
+BUILD_DIR=$(shell cd ${THIS_MAKEFILE_DIR}/.. && pwd)/build/${BUILD_SUBDIR}/${CCBN}
 
 WIN=
 
@@ -116,4 +116,4 @@ ${TEST_EXE}: test.c
 	@mkdir -p `dirname "$@"`
 	${CC} ${CFLAGS} -I${INCLUDEDIR} $< ${YAJL_SRC} -o $@  ${LDFLAGS}
 
-# to verify: openssl dgst -sha256 -verify public_key.pem -signature win/dummy_signature.bin win/dummy_installer.exe
+# to verify: openssl dgst -sha256 -verify public_key.pem -signature win/dummy_signature.sig win/dummy_installer.exe

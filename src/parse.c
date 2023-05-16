@@ -30,7 +30,7 @@ static int sxupdate_process_value(struct yajl_helper_parse_state *st, struct jso
       int_target = &v->version.minor;
     else if(prop_name && !strcmp(prop_name, "patch"))
       int_target = &v->version.patch;
-    else if(prop_name && !strcmp(prop_name, "prelease"))
+    else if(prop_name && !strcmp(prop_name, "prerelease"))
       str_target = &v->version.prerelease;
     else if(prop_name && !strcmp(prop_name, "meta"))
       str_target = &v->version.meta;
@@ -153,18 +153,18 @@ static int sxupdate_parse_ok(sxupdate_t handle) {
   if(v->version.major < 0 || v->version.minor < 0 || v->version.patch < 0)
     err = fprintf(stderr, "Invalid or unspecified version major, minor and/or patch\n");
 
-  // TO DO: check signature!
-  if(!handle->no_public_key) {
-    if(!v->enclosure.signature)
-      err = fprintf(stderr, "Version enclosure: missing signature\n");
-    else {
-      if(sxupdate_set_signature_from_b64(handle, v->enclosure.signature)
-         != sxupdate_status_ok)
-        err = fprintf(stderr, "Version enclosure: unable to convert signature from base64\n");
-    }
-  } else if(v->enclosure.signature)
-    err = fprintf(stderr, "Version is signed, but no public key provided to verify\n");
-
+  if(!err) {
+    if(!handle->no_public_key) {
+      if(!v->enclosure.signature)
+        err = fprintf(stderr, "Version enclosure: missing signature\n");
+      else {
+        if(sxupdate_set_signature_from_b64(handle, v->enclosure.signature)
+           != sxupdate_status_ok)
+          err = fprintf(stderr, "Version enclosure: unable to convert signature from base64\n");
+      }
+    } else if(v->enclosure.signature)
+      err = fprintf(stderr, "Version is signed, but no public key provided to verify\n");
+  }
   if(err)
     return 0; // not ok
 

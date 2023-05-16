@@ -18,7 +18,10 @@
  * Get a new sxupdate handle
  **/
 SXUPDATE_API sxupdate_t sxupdate_new() {
-  return calloc(1, sizeof(struct sxupdate_data));
+  sxupdate_t h = calloc(1, sizeof(struct sxupdate_data));
+  if(h)
+    h->parser.stat = yajl_status_ok;
+  return h;
 }
 
 /***
@@ -181,10 +184,12 @@ SXUPDATE_API enum sxupdate_status sxupdate_add_header(sxupdate_t handle, const c
     return sxupdate_status_invalid;
 
   size_t len = strlen(header_name) + strlen(header_value) + 10;
-  char *s = malloc(len);
+  char *s = calloc(1, len);
   if(!s)
     return sxupdate_status_memory;
   snprintf(s, len, "%s: %s", header_name, header_value);
+  if(handle->verbosity)
+    fprintf(stderr, "Adding header %s\n", s);
   handle->http_headers = curl_slist_append(handle->http_headers, s);
   free(s);
   return sxupdate_status_ok;
@@ -212,11 +217,27 @@ static enum sxupdate_status sxupdate_ready(sxupdate_t handle) {
   return sxupdate_status_ok;
 }
 
-static size_t sxupdate_parse_chunk(char *ptr, size_t size, size_t nmemb, void *handle) {
+static size_t sxupdate_curl_progress_callback(void *h,
+                                              double dltotal,
+                                              double dlnow,
+                                              double ultotal,
+                                              double ulnow) {
+  (void)(dltotal);
+  (void)(dlnow);
+  (void)(ultotal);
+  (void)(ulnow);
+  sxupdate_t handle = h;
+  if(handle->parser.stat != yajl_status_ok)
+    return 1; // abort
+   return 0; /* all is good */
+}
+
+static size_t sxupdate_parse_chunk(char *ptr, size_t size, size_t nmemb, void *h) {
+  sxupdate_t handle = h;
   size_t len = size * nmemb;
-  if(sxupdate_parse(handle, ptr, len) == sxupdate_status_ok)
-    return len;
-  return 0;
+  if(handle->parser.stat == yajl_status_ok)
+    sxupdate_parse(handle, ptr, len);
+  return len;
 }
 
 /***
@@ -252,6 +273,10 @@ static enum sxupdate_status sxupdate_fetch_and_parse(sxupdate_t handle, struct c
         // set custom headers
         if(http_headers)
           curl_easy_setopt(curl, CURLOPT_HTTPHEADER, http_headers);
+
+        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, handle);
+        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, sxupdate_curl_progress_callback);
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
 
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, handle);
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, sxupdate_parse_chunk);
@@ -428,7 +453,7 @@ SXUPDATE_API enum sxupdate_status sxupdate_execute(sxupdate_t handle) {
     if((stat = sxupdate_fetch_and_parse(handle, handle->http_headers)) == sxupdate_status_ok) {
 
       // check if this version is newer
-      if(sxupdate_version_cmp(handle->latest_version.version, handle->get_current_version()) > 0) {
+      if(sxupdate_version_cmp(handle->latest_version.version, handle->get_current_version(), handle->verbosity) > 0) {
 
         // execute callback and proceed if it returns sxupdate_action_do_update
         if(handle->sync_cb(&handle->latest_version) == sxupdate_action_proceed) {

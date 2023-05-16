@@ -58,18 +58,24 @@ static int version_prerelease_cmp(char *x, char *y) {
 }
 
 /* compare two versions. return 1 if v1 > v2, -1 if v1 < v2, or 0 if they are equal */
-int sxupdate_version_cmp(struct sxupdate_semantic_version v1, struct sxupdate_semantic_version v2) {
-  if(v1.major > v2.major) return 1;
-  if(v1.major < v2.major) return -1;
+int sxupdate_version_cmp(struct sxupdate_semantic_version v1, struct sxupdate_semantic_version v2, unsigned char verbose) {
+  if(verbose)
+    fprintf(stderr, "comparing versions: v1 = %i.%i.%i-%s; v2 = %i.%i.%i-%s\n",
+            v1.major, v1.minor, v1.patch, v1.prerelease ? v1.prerelease : "",
+            v2.major, v2.minor, v2.patch, v2.prerelease ? v2.prerelease : ""
+            );
+#define SXUPDATE_VERSION_CMP_EXIT(part, rc) do { if(verbose) fprintf(stderr, "result " #part " = %i\n", rc); return rc; } while(0)
+  if(v1.major > v2.major) SXUPDATE_VERSION_CMP_EXIT(major, 1);
+  if(v1.major < v2.major) SXUPDATE_VERSION_CMP_EXIT(major, -1);
 
-  if(v1.minor > v2.minor) return 1;
-  if(v1.minor < v2.minor) return -1;
+  if(v1.minor > v2.minor) SXUPDATE_VERSION_CMP_EXIT(minor, 1);
+  if(v1.minor < v2.minor) SXUPDATE_VERSION_CMP_EXIT(minor, -1);
 
-  if(v1.patch > v2.patch) return 1;
-  if(v1.patch < v2.patch) return -1;
+  if(v1.patch > v2.patch) SXUPDATE_VERSION_CMP_EXIT(patch, 1);
+  if(v1.patch < v2.patch) SXUPDATE_VERSION_CMP_EXIT(patch, -1);
 
-  if(!v1.prerelease && v2.prerelease) return 1;
-  if(!v2.prerelease && v1.prerelease) return -1;
+  if(!v1.prerelease && v2.prerelease) SXUPDATE_VERSION_CMP_EXIT(prerelease, 1);
+  if(!v2.prerelease && v1.prerelease) SXUPDATE_VERSION_CMP_EXIT(prerelease, -1);
 
   if(v1.prerelease && v2.prerelease && strcmp(v1.prerelease, v2.prerelease)) {
     char *pr1 = strdup(v1.prerelease);
@@ -81,9 +87,9 @@ int sxupdate_version_cmp(struct sxupdate_semantic_version v1, struct sxupdate_se
       rc = version_prerelease_cmp(pr1, pr2);
     free(pr1);
     free(pr2);
-    return rc;
+    SXUPDATE_VERSION_CMP_EXIT(prerelease, rc);
   }
-  return 0;
+  SXUPDATE_VERSION_CMP_EXIT("", 0);
 }
 
 void sxupdate_version_free(struct sxupdate_version *v) {
