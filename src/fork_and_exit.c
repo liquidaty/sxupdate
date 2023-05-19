@@ -57,11 +57,14 @@ static char *prepare_cmd(char *executable_path, struct sxupdate_string_list *arg
       len += 1 + strlen(arg->value);
     len += 2;
 
-    cmd = calloc(1, len);
+    cmd = calloc(1, len + 3);
     if(!cmd)
       sxupdate_printerr("Out of memory!");
     else {
-      strcpy(cmd, executable_path);
+      // add surrounding double-quotes to executable name
+      *cmd = '"';
+      strcpy(cmd + 1, executable_path);
+      strcat(cmd, "\"");
       for(struct sxupdate_string_list *arg = args; arg; arg = arg->next) {
         strcat(cmd, " ");
         strcat(cmd, arg->value);

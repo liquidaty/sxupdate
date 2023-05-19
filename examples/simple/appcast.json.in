@@ -9,9 +9,9 @@
         "meta": "21AF26D3"
       },
       "enclosure": {
-        "url": "./dummy_installer",
+        "url": "./dummy_installerEXE",
         "length": 99999,
-        "filename": "dummy_installer.exe",
+        "filename": "dummy_installerEXE",
         "signature": "SIGNATURE"
       }
     },
@@ -24,9 +24,9 @@
         "meta": "dfdffd"
       },
       "enclosure": {
-        "url": "./dummy_installerx",
+        "url": "./dummy_installerxEXE",
         "length": 99999,
-        "filename": "dummy_installerx.exe",
+        "filename": "dummy_installerxEXE",
         "signature": "SIGNATURE"
       }
     }

@@ -90,7 +90,7 @@ endif
 
 ${BUILD_DIR}/dummy_appcast.json: simple/appcast.json.in ${BUILD_DIR}/dummy_signature.txt
 	@mkdir -p `dirname "$@"`
-	@cat $< | sed 's#THIS_DIR#${BUILD_DIR}#' | sed "s@SIGNATURE@`cat ${BUILD_DIR}/dummy_signature.txt`@" > $@.tmp
+	@cat $< | sed 's/EXE/${EXE}/' | sed 's#THIS_DIR#${BUILD_DIR}#' | sed "s@SIGNATURE@`cat ${BUILD_DIR}/dummy_signature.txt`@" > $@.tmp
 	@mv $@.tmp $@
 
 ${BUILD_DIR}/dummy_signature.txt: ${BUILD_DIR}/dummy_signature.sig
