@@ -1,0 +1,22 @@
+{
+  "comment": "converted to json from https://sparkle-project.org/files/sparkletestcast.xml",
+  "title": "Sparkle Test App Changelog",
+  "link": "http://sparkle-project.org/files/sparkletestcast.xml",
+  "description": "Most recent changes with links to updates.",
+  "language": "en",
+  "items": [
+    {
+      "title": "Version 2.0",
+      "link": "https://sparkle-project.org",
+      "version": 2,
+      "description": "<ul> <li>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</li> <li>Suspendisse sed felis ac ante ultrices rhoncus. Etiam quis elit vel nibh placerat facilisis in id leo.</li> <li>Vestibulum nec tortor odio, nec malesuada libero. Cras vel convallis nunc.</li> <li>Suspendisse tristique massa eget velit consequat tincidunt. Praesent sodales hendrerit pretium.</li> </ul> ",
+      "pubDate": "Sat, 26 Jul 2014 15:20:11 +0000",
+      "enclosure": {
+        "url": "https://sparkle-project.org/files/Sparkle%20Test%20App.zip",
+        "length": 107758,
+        "type": "application/octet-stream",
+        "simpleXUpdate:edSignature": "7cLALFUHSwvEJWSkV8aMreoBe4fhRa4FncC5NoThKxwThL6FDR7hTiPJh1fo2uagnPogisnQsgFgq6mGkt2RBw=="
+      }
+    }
+  ]
+}
