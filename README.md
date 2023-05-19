@@ -104,6 +104,14 @@ A simple but fully featured example is available at [examples/test.c](examples/t
 
 More comprehensive documentation is planned...
 
+
+### TO DO
+
+* CI/CD
+* documentation. maybe use https://github.com/libgit2/docurium
+* if/as new use cases demand: adapt for use with other programming languages or contexts
+
+
 ### Contributing
 
 We welcome contributions! Please see our [contributing guide](CONTRIBUTING.md) for more details.
