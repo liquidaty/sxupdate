@@ -8,6 +8,9 @@
 #if defined(_WIN32) || defined(WIN32) || defined(WIN)
 #include <windows.h>
 #endif
+
+#include "log.h"
+
 /**
  * Check if a directory exists
  * return true (non-zero) or false (zero)
@@ -28,7 +31,6 @@ static int file_exists(const char* filename) {
   DWORD attributes = GetFileAttributes(filename);
   return (attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY));
 #else
-# include <sys/stat.h> // S_IRUSR S_IWUSR
   struct stat buffer;
   if(stat(filename, &buffer) == 0) {
     char is_dir = buffer.st_mode & S_IFDIR ? 1 : 0;
@@ -39,6 +41,8 @@ static int file_exists(const char* filename) {
 #endif
 }
 
+#define SXUPDATE_GET_INSTALLER_PATH_MAX_TRIES 10000
+#define SXUPDATE_GET_INSTALLER_PATH_MAX_TRIES_MIN_STR_LEN 5
 char *sxupdate_get_installer_download_path(const char *basename) {
   char *tmpdir;
   char slash;
@@ -60,41 +64,40 @@ char *sxupdate_get_installer_download_path(const char *basename) {
 #endif
 
   if(!dir_exists(tmpdir)) {
-    fprintf(stderr, "Could not find temporary directory %s\n", tmpdir);
+    sxupdate_printerr("Could not find temporary directory %s", tmpdir);
     return NULL;
   }
 
-  int i;
-  char *s = NULL;
-  for(i = 0; i < 10000; i++) { // overusing malloc() but root of evil etc...
-    size_t len = strlen(tmpdir) + strlen(basename) + strlen(suffix) + 10;
-    s = calloc(1, len + 1);
-    if(!s) {
-      fprintf(stderr, "Out of memory!\n");
-      return NULL;
-    }
+  size_t len = strlen(tmpdir) + strlen(basename) + strlen(suffix) + SXUPDATE_GET_INSTALLER_PATH_MAX_TRIES_MIN_STR_LEN + 10;
+  char *s = calloc(1, len + 1);
+  if(!s) {
+    sxupdate_printerr("Out of memory!");
+    return NULL;
+  }
+
+  for(int i = 0; i < SXUPDATE_GET_INSTALLER_PATH_MAX_TRIES; i++) { // overusing malloc() but root of evil etc...
     if(i == 0)
       snprintf(s, len, "%s%c%s%s", tmpdir, slash, basename, suffix);
     else
       snprintf(s, len, "%s%c%s (%i)%s", tmpdir, slash, basename, i, suffix);
     if(!file_exists(s))
       return s;
-    free(s);
   }
-  fprintf(stderr, "Unable to find an unused filename after %i tries with base:\n  %s%c%s\n",
-          i, tmpdir, slash, basename);
+  free(s);
+  sxupdate_printerr("Unable to find an unused filename after %i tries with base:\n  %s%c%s",
+          SXUPDATE_GET_INSTALLER_PATH_MAX_TRIES, tmpdir, slash, basename);
   return NULL;
 }
 
 /**
  * Set executable permissions on a file
- * @return: 0 on success
+ * @return: 0 on success, else errno
  */
 int sxupdate_set_execute_permission(const char *path) {
 #if !defined(_WIN32) && !defined(WIN32) && !defined(WIN)
   if(chmod(path, S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH) != 0) {
-    fprintf(stderr, "Could not set execute permissions: %s\n", path);
-    return 1;
+    sxupdate_printerr("Could not set execute permissions: %s", path);
+    return errno;
   }
 #else
   (void)(path);

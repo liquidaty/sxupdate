@@ -13,6 +13,7 @@
 #include "parse.h"
 #include "version.h"
 #include "verify.h"
+#include "log.h"
 
 /***
  * Get a new sxupdate handle
@@ -96,7 +97,7 @@ SXUPDATE_API void sxupdate_set_public_key(sxupdate_t handle, RSA *key) {
   if(handle->public_key)
     RSA_free(handle->public_key);
   if(!key) {
-    fprintf(stderr, "Warning! signature verification disabled. Not secure!!!!!\n");
+    sxupdate_printerr("Warning! signature verification disabled. Not secure!!!!!");
     handle->no_public_key = 1;
     handle->public_key = NULL;
   } else
@@ -108,7 +109,7 @@ SXUPDATE_API enum sxupdate_status sxupdate_set_public_key_from_file(sxupdate_t h
     RSA_free(handle->public_key);
   handle->no_public_key = 0;
   if(handle->verbosity)
-    fprintf(stderr, "loading public key from file %s\n", filepath);
+    sxupdate_verbose("loading public key from file %s", filepath);
   handle->public_key = sxupdate_public_key_from_pem_file(filepath);
   if(!handle->public_key)
     return sxupdate_status_error;
@@ -170,7 +171,7 @@ SXUPDATE_API enum sxupdate_status sxupdate_add_header(sxupdate_t handle, const c
     return sxupdate_status_memory;
   snprintf(s, len, "%s: %s", header_name, header_value);
   if(handle->verbosity)
-    fprintf(stderr, "Adding header %s\n", s);
+    sxupdate_verbose("Adding header %s", s);
   handle->http_headers = curl_slist_append(handle->http_headers, s);
   free(s);
   return sxupdate_status_ok;
@@ -178,20 +179,20 @@ SXUPDATE_API enum sxupdate_status sxupdate_add_header(sxupdate_t handle, const c
 
 static enum sxupdate_status sxupdate_ready(sxupdate_t handle) {
   if(!handle->get_current_version) {
-    fprintf(stderr, "get_current_version callback not set\n");
+    sxupdate_printerr("get_current_version callback not set");
     return sxupdate_status_error;
   }
   if(!handle->url || !handle->interaction_handler) {
-    fprintf(stderr, "url or on_update_available callback not set\n");
+    sxupdate_printerr("url or on_update_available callback not set");
     return sxupdate_status_error;
   }
   if(handle->url_is_file && handle->http_headers) {
-    fprintf(stderr, "custom headers cannot be used with file:// url\n");
+    sxupdate_printerr("custom headers cannot be used with file:// url");
     return sxupdate_status_error;
   }
 
   if(!handle->public_key && !handle->no_public_key) {
-    fprintf(stderr, "no public key set-- call sxupdate_set_public_key() before sxupdate_execute()\n");
+    sxupdate_printerr("no public key set-- call sxupdate_set_public_key() before sxupdate_execute()");
     return sxupdate_status_error;
   }
 
@@ -222,7 +223,84 @@ static size_t sxupdate_parse_chunk(char *ptr, size_t size, size_t nmemb, void *h
 }
 
 /***
- * Fetch and parse the metadata
+ * Fetch and parse the metadata from a file
+ */
+static enum sxupdate_status sxupdate_fetch_from_file(sxupdate_t handle,
+                                                     void (*next)(sxupdate_t, enum sxupdate_status)
+                                                     ) {
+#define SXUPDATE_FETCH_FROM_FILE_BUFF_SIZE 1024
+  enum sxupdate_status stat = sxupdate_status_ok;
+  const char *filename = handle->url + strlen(SXUPDATE_FILE_PREFIX);
+  if(handle->verbosity)
+    sxupdate_verbose("Fetching version info from local file %s", filename);
+  FILE *f = fopen(filename, "rb");
+  if(f) {
+    char buff[SXUPDATE_FETCH_FROM_FILE_BUFF_SIZE];
+    size_t len;
+    while(stat == sxupdate_status_ok && (len = fread(buff, 1, sizeof(buff), f)) > 0)
+      stat = sxupdate_parse(handle, buff, len);
+    fclose(f);
+  }
+
+  // finish parsing
+  if(stat == sxupdate_status_ok)
+    stat = sxupdate_parse_finish(handle);
+  next(handle, stat);
+  return stat;
+}
+
+/***
+ * Fetch and parse the metadata from the network using curl
+ */
+static enum sxupdate_status sxupdate_fetch_from_curl(sxupdate_t handle,
+                                                     struct curl_slist *http_headers,
+                                                     void (*next)(sxupdate_t, enum sxupdate_status)
+                                                     ) {
+  enum sxupdate_status stat = sxupdate_status_ok;
+  CURL *curl = curl_easy_init();
+  if(!curl)
+    stat = sxupdate_status_memory;
+  else {
+    curl_easy_setopt(curl, CURLOPT_URL, handle->url);
+
+    // set custom headers
+    if(http_headers)
+      curl_easy_setopt(curl, CURLOPT_HTTPHEADER, http_headers);
+
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, handle);
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, sxupdate_curl_progress_callback);
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, handle);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, sxupdate_parse_chunk);
+
+#ifdef _WIN32
+    // if(no_verify)
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0);
+#endif
+
+    // execute
+    if(handle->verbosity)
+      sxupdate_verbose("Fetching version info from %s", handle->url);
+    CURLcode res = curl_easy_perform(curl);
+    if(res != CURLE_OK) {
+      sxupdate_printerr("Error connecting to %s:\n  %s", handle->url, curl_easy_strerror(res));
+      stat = sxupdate_status_error;
+    }
+    curl_easy_cleanup(curl);
+
+    // finish parsing
+    if(stat == sxupdate_status_ok)
+      stat = sxupdate_parse_finish(handle);
+    next(handle, stat);
+  }
+
+  return stat;
+}
+
+/***
+ * Fetch and parse the metadata from network or file
  *
  * This implementation is synchronous, but, we use a callback because future
  * implementations in other contexts (e.g. web assembly) might be async.
@@ -235,61 +313,11 @@ enum sxupdate_status sxupdate_fetch_and_parse(sxupdate_t handle,
   enum sxupdate_status stat = sxupdate_status_error;
   if(handle->url
      && (stat = sxupdate_parse_init(handle)) == sxupdate_status_ok) { // initialize parser
-
-    // do the parse
-    if(handle->url_is_file) {
-      const char *filename = handle->url + strlen(SXUPDATE_FILE_PREFIX);
-      if(handle->verbosity)
-        fprintf(stderr, "Fetching version info from local file %s\n", filename);
-      FILE *f = fopen(filename, "rb");
-      if(f) {
-        char buff[1024];
-        size_t len;
-        while(stat == sxupdate_status_ok && (len = fread(buff, 1, sizeof(buff), f)) > 0)
-          stat = sxupdate_parse(handle, buff, len);
-        fclose(f);
-      }
-    } else {
-      CURL *curl = curl_easy_init();
-      if(!curl)
-        stat = sxupdate_status_memory;
-      else {
-        curl_easy_setopt(curl, CURLOPT_URL, handle->url);
-
-        // set custom headers
-        if(http_headers)
-          curl_easy_setopt(curl, CURLOPT_HTTPHEADER, http_headers);
-
-        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, handle);
-        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, sxupdate_curl_progress_callback);
-        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, handle);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, sxupdate_parse_chunk);
-
-#ifdef _WIN32
-        // if(no_verify)
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0);
-#endif
-
-        // execute
-        if(handle->verbosity)
-          fprintf(stderr, "Fetching version info from %s\n", handle->url);
-        CURLcode res = curl_easy_perform(curl);
-        if(res != CURLE_OK) {
-          fprintf(stderr, "Error connecting to %s:\n  %s\n", handle->url, curl_easy_strerror(res));
-          stat = sxupdate_status_error;
-        }
-        curl_easy_cleanup(curl);
-      }
-    }
-
-    // finish parsing
-    if(stat == sxupdate_status_ok)
-      stat = sxupdate_parse_finish(handle);
+    if(handle->url_is_file)
+      stat = sxupdate_fetch_from_file(handle, next);
+    else
+      stat = sxupdate_fetch_from_curl(handle, http_headers, next);
   }
-  next(handle, stat);
   return stat;
 }
 
@@ -299,14 +327,14 @@ static char *url_merge(const char *parent_url, const char *relative_url) {
   if(strncmp(parent_url, SXUPDATE_HTTPS_PREFIX, strlen(SXUPDATE_HTTPS_PREFIX))) {
     char *first_slash = strchr(parent_url + strlen(SXUPDATE_HTTPS_PREFIX), '/');
     if(!first_slash) {
-      fprintf(stderr, "url_merge: unexpected error 1\n");
+      sxupdate_printerr("url_merge: unexpected error 1");
       return NULL;
     }
     parent_bytes_to_keep = first_slash - parent_url + 1;
   } else if(strncmp(parent_url, SXUPDATE_FILE_PREFIX, strlen(SXUPDATE_FILE_PREFIX)))
     parent_bytes_to_keep = strlen(SXUPDATE_FILE_PREFIX);
   else {
-    fprintf(stderr, "url_merge: unexpected error 2\n");
+    sxupdate_printerr("url_merge: unexpected error 2");
     return NULL;
   }
 
@@ -342,10 +370,10 @@ static enum sxupdate_status sxupdate_download(sxupdate_t handle,
   char *resolved_url = NULL;
   if(sxupdate_is_relative_filename(version->enclosure.url)) {
     if(verbosity > 1)
-      fprintf(stderr, "Merging urls: %s + %s\n", parent_url, version->enclosure.url);
+      sxupdate_verbose("Merging urls: %s + %s", parent_url, version->enclosure.url);
     resolved_url = url_merge(parent_url, version->enclosure.url);
     if(!resolved_url) {
-      fprintf(stderr, "Unable to merge urls: %s + %s\n", parent_url, version->enclosure.url);
+      sxupdate_printerr("Unable to merge urls: %s + %s", parent_url, version->enclosure.url);
       return sxupdate_status_error;
     }
   } else
@@ -356,7 +384,7 @@ static enum sxupdate_status sxupdate_download(sxupdate_t handle,
     if(resolved_url != version->enclosure.url)
       free(resolved_url);
     if(verbosity)
-      fprintf(stderr, "Using local file %s\n", *save_path_p ? *save_path_p : "memory error!");
+      sxupdate_verbose("Using local file %s", *save_path_p ? *save_path_p : "memory error!");
     return sxupdate_status_ok;
   }
 
@@ -368,7 +396,7 @@ static enum sxupdate_status sxupdate_download(sxupdate_t handle,
     stat = sxupdate_status_memory;
   else {
     if(verbosity)
-      fprintf(stderr, "Downloading to %s from %s\n", save_path, resolved_url);
+      sxupdate_verbose("Downloading to %s from %s", save_path, resolved_url);
     FILE *f = fopen(save_path, "wb");
     if(!f)
       perror(save_path);
@@ -399,14 +427,14 @@ static enum sxupdate_status sxupdate_download(sxupdate_t handle,
         CURLcode res = curl_easy_perform(curl);
 
         if(res != CURLE_OK)
-          fprintf(stderr, "Error connecting to %s:\n  %s\n", resolved_url, curl_easy_strerror(res));
+          sxupdate_printerr("Error connecting to %s:\n  %s", resolved_url, curl_easy_strerror(res));
         else {
           // ensure saved_path has executable permissions
           if(!sxupdate_set_execute_permission(save_path))
             stat = sxupdate_status_ok;
         }
         if(verbosity > 2)
-          fprintf(stderr, "cleaning up curl call\n");
+          sxupdate_verbose("cleaning up curl call");
         curl_easy_cleanup(curl);
       }
       fclose(f);

@@ -1,10 +1,11 @@
-#include "internal.h"
 #include <openssl/rsa.h>
 #include <openssl/pem.h>
 #include <openssl/sha.h>
 #include <openssl/bio.h>
-// #include <openssl/evp.h>
 #include <string.h>
+
+#include "internal.h"
+#include "log.h"
 
 /**
  * return 1 on success, 0 on failure
@@ -49,7 +50,7 @@ static unsigned char *base64_decode(const char *input, int length, int *outlen) 
 enum sxupdate_status sxupdate_set_signature_from_b64(sxupdate_t handle,
                                                      const char *b64) {
   if(handle->verbosity)
-    fprintf(stderr, "Converting signature from base64: %s\n...", b64);
+    sxupdate_verbose("Converting signature from base64: %s\n...", b64);
   free(handle->latest_version_internal.signature);
 
   /* convert from base64 */
@@ -58,12 +59,12 @@ enum sxupdate_status sxupdate_set_signature_from_b64(sxupdate_t handle,
   if(outlen_i > 0) {
     handle->latest_version_internal.signature_length = (size_t)outlen_i;
     if(handle->verbosity)
-      fprintf(stderr, "Success!\n");
+      sxupdate_verbose("Success!");
     return sxupdate_status_ok;
   }
 
   if(handle->verbosity)
-    fprintf(stderr, "Error!!!\n");
+    sxupdate_verbose("Error!!!");
   free(handle->latest_version_internal.signature);
   handle->latest_version_internal.signature = NULL;
   return sxupdate_status_error;
@@ -81,23 +82,23 @@ RSA *sxupdate_public_key_from_pem_file(const char *filepath) {
   fclose(pubkey_file);
 
   if(!public_key)
-    fprintf(stderr, "Unable to load public key from %s\n", filepath);
+    sxupdate_printerr("Unable to load public key from %s", filepath);
 
   return public_key;
 }
 
 enum sxupdate_status sxupdate_verify_signature(sxupdate_t handle, const char *filepath) {
   if(handle->verbosity)
-    fprintf(stderr, "Verifying the signature for %s\n...", filepath);
+    sxupdate_verbose("Verifying the signature for %s\n...", filepath);
   if(!(handle->public_key && !handle->no_public_key))
     return sxupdate_status_ok; // no signature check
 
   if(verify_signature(filepath, handle->public_key, handle->latest_version_internal.signature, handle->latest_version_internal.signature_length)) {
     if(handle->verbosity)
-      fprintf(stderr, "OK!\n");
+      sxupdate_verbose("OK!");
     return sxupdate_status_ok;
   }
 
-  fprintf(stderr, "Signature verification failed!!\n");
+  sxupdate_printerr("Signature verification failed!!");
   return sxupdate_status_error;
 }

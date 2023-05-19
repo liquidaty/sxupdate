@@ -4,6 +4,7 @@
 
 #include "parse.h"
 #include "verify.h"
+#include "log.h"
 
 static int sxupdate_end_map(struct yajl_helper_parse_state *st) {
 //  struct yajl_helper_parse_state *st = ctx;
@@ -64,9 +65,9 @@ static int sxupdate_process_value(struct yajl_helper_parse_state *st, struct jso
     int err;
     long long i = json_value_long(value, &err);
     if(int_target && (i < 0 || i >= INTMAX_MAX))
-      err = fprintf(stderr, "Warning! invalid integer value ignored\n"); // to do: use custom error handler
+      err = sxupdate_printerr("Warning! invalid integer value ignored"); // to do: use custom error handler
     else if(sz_target && i < 0)
-      err = fprintf(stderr, "Warning! invalid integer (size_t) value ignored: %lli\n", i); // to do: use custom error handler
+      err = sxupdate_printerr("Warning! invalid integer (size_t) value ignored: %lli", i); // to do: use custom error handler
     else if(int_target)
       *int_target = (int)i;
     else if(sz_target)
@@ -75,7 +76,7 @@ static int sxupdate_process_value(struct yajl_helper_parse_state *st, struct jso
       char *s = NULL;
       json_value_to_string_dup(value, &s, 1);
       if(s)
-        fprintf(stderr, "Value on error: %s\n", s);
+        sxupdate_printerr("Value on error: %s", s);
       free(s);
     }
   }
@@ -98,20 +99,20 @@ static int str_ends_with(const char *s, const char *suffix) {
   return 0;
 }
 
-int sxupdate_url_is_file(const char *s) {
+static int sxupdate_url_is_X(const char *s, size_t n, const char *s2) {
   if(!s) return 0;
   size_t len = strlen(s);
-  if(len > 8 && !memcmp(s, SXUPDATE_FILE_PREFIX, 7))
+  if(len > n && !memcmp(s, s2, n - 1))
     return 1;
   return 0;
 }
 
+int sxupdate_url_is_file(const char *s) {
+  return sxupdate_url_is_X(s, 8, SXUPDATE_FILE_PREFIX);
+}
+
 int sxupdate_url_is_https(const char *s) {
-  if(!s) return 0;
-  size_t len = strlen(s);
-  if(len > 9 && !memcmp(s, SXUPDATE_HTTPS_PREFIX, 8))
-    return 1;
-  return 0;
+  return sxupdate_url_is_X(s, 9, SXUPDATE_HTTPS_PREFIX);
 }
 
 /**
@@ -150,36 +151,36 @@ static int sxupdate_parse_ok(sxupdate_t handle) {
 
   // check filename
   if(!v->enclosure.filename || !*v->enclosure.filename)
-    err = fprintf(stderr, "Version enclosure: missing filename\n");
+    err = sxupdate_printerr("Version enclosure: missing filename");
   else if(str_ends_with(v->enclosure.filename, ".exe"))
     // if filename ends with .exe, remove that suffix
     v->enclosure.filename[strlen(v->enclosure.filename) - 4] = '\0';
 
   // check url
   if(!v->enclosure.url)
-    err = fprintf(stderr, "Version enclosure: missing url\n");
+    err = sxupdate_printerr("Version enclosure: missing url");
 
   if(v->enclosure.url
      && !sxupdate_url_is_https(v->enclosure.url)
      && !sxupdate_url_is_file(v->enclosure.url)
      && !sxupdate_is_relative_filename(v->enclosure.url))
-    err = fprintf(stderr, "Version enclosure: bad url (%s)\n", v->enclosure.url);
+    err = sxupdate_printerr("Version enclosure: bad url (%s)", v->enclosure.url);
 
   // check major / minor / patch
   if(v->version.major < 0 || v->version.minor < 0 || v->version.patch < 0)
-    err = fprintf(stderr, "Invalid or unspecified version major, minor and/or patch\n");
+    err = sxupdate_printerr("Invalid or unspecified version major, minor and/or patch");
 
   if(!err) {
     if(!handle->no_public_key) {
       if(!v->enclosure.signature)
-        err = fprintf(stderr, "Version enclosure: missing signature\n");
+        err = sxupdate_printerr("Version enclosure: missing signature");
       else {
         if(sxupdate_set_signature_from_b64(handle, v->enclosure.signature)
            != sxupdate_status_ok)
-          err = fprintf(stderr, "Version enclosure: unable to convert signature from base64\n");
+          err = sxupdate_printerr("Version enclosure: unable to convert signature from base64");
       }
     } else if(v->enclosure.signature)
-      err = fprintf(stderr, "Version is signed, but no public key provided to verify\n");
+      err = sxupdate_printerr("Version is signed, but no public key provided to verify");
   }
   if(err)
     return 0; // not ok

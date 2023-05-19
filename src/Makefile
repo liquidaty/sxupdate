@@ -33,7 +33,7 @@ ifneq ($(SSL_PREFIX),$(PREFIX))
   INCLUDE_DIR+= -I${SSL_PREFIX}/include
 endif
 
-OBJ_SRC=verify api file fork_and_exit version parse
+OBJ_SRC=verify api file fork_and_exit version parse log
 
 PKGCONFIGLIBS=
 ifeq ($(USE_BUNDLED_YAJL_HELPER),1)

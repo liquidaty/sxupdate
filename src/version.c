@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "internal.h"
+#include "log.h"
 
 static size_t version_prerelease_next_identifier_len(char *s) {
   char *dot = strchr(s, '.');
@@ -60,19 +61,19 @@ static int version_prerelease_cmp(char *x, char *y) {
 /* compare two versions. return 1 if v1 > v2, -1 if v1 < v2, or 0 if they are equal */
 int sxupdate_version_cmp(struct sxupdate_semantic_version v1, struct sxupdate_semantic_version v2, unsigned char verbose) {
   if(verbose)
-    fprintf(stderr, "comparing versions: v1 = %i.%i.%i-%s; v2 = %i.%i.%i-%s\n",
+    sxupdate_verbose("comparing versions: v1 = %i.%i.%i-%s; v2 = %i.%i.%i-%s",
             v1.major, v1.minor, v1.patch, v1.prerelease ? v1.prerelease : "",
             v2.major, v2.minor, v2.patch, v2.prerelease ? v2.prerelease : ""
             );
-#define SXUPDATE_VERSION_CMP_EXIT(part, rc) do { if(verbose) fprintf(stderr, "result " #part " = %i\n", rc); return rc; } while(0)
-  if(v1.major > v2.major) SXUPDATE_VERSION_CMP_EXIT(major, 1);
-  if(v1.major < v2.major) SXUPDATE_VERSION_CMP_EXIT(major, -1);
+#define SXUPDATE_VERSION_CMP_EXIT(part, rc) do { if(verbose) sxupdate_verbose("result " #part " = %i", rc); return rc; } while(0)
 
-  if(v1.minor > v2.minor) SXUPDATE_VERSION_CMP_EXIT(minor, 1);
-  if(v1.minor < v2.minor) SXUPDATE_VERSION_CMP_EXIT(minor, -1);
+#define SXUPDATE_VERSION_CMP_VALUE(X) \
+  if(v1.X > v2.X) SXUPDATE_VERSION_CMP_EXIT(X, 1); \
+  if(v1.X < v2.X) SXUPDATE_VERSION_CMP_EXIT(X, -1)
 
-  if(v1.patch > v2.patch) SXUPDATE_VERSION_CMP_EXIT(patch, 1);
-  if(v1.patch < v2.patch) SXUPDATE_VERSION_CMP_EXIT(patch, -1);
+  SXUPDATE_VERSION_CMP_VALUE(major);
+  SXUPDATE_VERSION_CMP_VALUE(minor);
+  SXUPDATE_VERSION_CMP_VALUE(patch);
 
   if(!v1.prerelease && v2.prerelease) SXUPDATE_VERSION_CMP_EXIT(prerelease, 1);
   if(!v2.prerelease && v1.prerelease) SXUPDATE_VERSION_CMP_EXIT(prerelease, -1);
@@ -82,7 +83,7 @@ int sxupdate_version_cmp(struct sxupdate_semantic_version v1, struct sxupdate_se
     char *pr2 = strdup(v2.prerelease);
     int rc = 0;
     if(!(pr1 && pr2))
-      fprintf(stderr, "Out of memory!\n");
+      sxupdate_printerr("Out of memory!");
     else
       rc = version_prerelease_cmp(pr1, pr2);
     free(pr1);
