@@ -1,0 +1,675 @@
+#!/bin/sh
+# Based on the configure script from musl libc, MIT licensed; vis, ISC licensed
+
+usage () {
+    cat <<EOF
+Usage: $0 [OPTION]... [VAR=VALUE]...
+
+To assign environment variables (e.g., CC, CFLAGS...), specify them as
+VAR=VALUE.  See below for descriptions of some of the useful variables.
+
+Defaults for the options are specified in brackets.
+
+Configuration:
+  --config-file=FILE      save config to FILE [config.mk]
+
+Optional configuration:
+  --minimal=yes           do not include extra features (default=no)
+  --arch=ARCH             use -march=ARCH. Set to 'none' for none, else defaults to 'native'
+  --curl-prefix=DIR       specify directory, if not PREFIX, containing lib/libcurl and include/curl.h
+
+Installation and other directories:
+  --prefix=PREFIX         main installation prefix [\$PREFIX or /usr/local]
+  --exec-prefix=EPREFIX   installation prefix for bin, lib, include [PREFIX]
+  --ssl-prefix=PREFIX     dir that contains ssl includes and libraries
+
+Fine tuning of the installation directories:
+  --sharedir=DIR          share directories [PREFIX/share]
+  --docdir=DIR            misc. documentation [PREFIX/share/doc]
+  --mandir=DIR            man pages [PREFIX/share/man]
+
+Optional features:
+  --enable-lto            compile with LTO (works with some but not all platforms/compilers) [no]
+  --enable-whole-program  compile without -fwhole-program even if no -flto [yes]
+  --enable-pie            build with position independent executables [auto]
+  --enable-pic            build with position independent shared libraries [auto]
+  --curl-static           compile with static curl lib using flags specified by CURL_PREFIX/bin/curl-config
+  --use-bundled-yajl      use bundled yajl instead of installed version [yes]
+  --use-bundled-yajl_helper use bundled yajl_helper instead of installed version [auto]
+
+Some influential environment variables:
+  CC                      C compiler command [detected]
+  AWK                     AWK tool command [detected]
+  MAKE                    gmake tool command [detected]
+  AR                      archive command [detected]
+  RANLIB                  ranlib archive indexer command [detected]
+  CFLAGS                  C compiler flags [-Os -pipe ...]
+  LDFLAGS                 Linker flags
+
+  CROSS_COMPILING=no      Set to yes to disable auto-detect compilation flags
+
+Use these variables to override the choices made by configure.
+
+EOF
+    exit 0
+}
+
+# Helper functions
+
+quote () {
+    tr '\n' ' ' <<EOF | grep '^[-[:alnum:]_=,./:]* $' >/dev/null 2>&1 && { echo "$1" ; return 0 ; }
+$1
+EOF
+    printf %s\\n "$1" | sed -e "s/'/'\\\\''/g" -e "1s/^/'/" -e "\$s/\$/'/" -e "s#^'\([-[:alnum:]_,./:]*\)=\(.*\)\$#\1='\2#"
+}
+echo () { printf "%s\n" "$*" ; }
+fail () { echo "$*" ; exit 1 ; }
+fnmatch () { eval "case \"\$2\" in $1) return 0 ;; *) return 1 ;; esac" ; }
+cmdexists () { type "$1" >/dev/null 2>&1 ; }
+trycc1 () { test -z "$CC" && cmdexists "$1" && ( "$1" --version | grep -i gcc ) >/dev/null 2>/dev/null && CC=$1 ; }
+trycc2 () { test -z "$CC" && cmdexists "$1" && CC=$1 ; }
+tryar () { test -z "$AR" && cmdexists "$1" && AR=$1 ; }
+tryranlib () { test -z "$RANLIB" && cmdexists "$1" && RANLIB=$1 ; }
+tryawk () { test -z "$AWK" && "$1" 'function works () {return 0} BEGIN{exit works()}' && AWK=$1 ; }
+trymake() {
+    if test -z "$MAKE" && cmdexists "$1" ; then
+	v=`$1 --version | grep 'GNU Make' | sed -e 's/.*Make //'`
+	if [ "$v" = "" ] ; then
+	    printf "Found but not using non-GNU make ($1)... "
+	else
+	    MAKE="$1"
+	    maj=`echo $v | cut -d. -f 1`
+	    min=`echo $v | cut -d. -f 2`
+	    if ! test $maj -gt 3 -o '(' $maj -eq 3 -a $min -ge 81 ')' ; then
+		printf "Warning: using make, but version $v < 3.81 has not been tested. "
+	    fi
+	fi
+    fi
+}
+
+stripdir () {
+    while eval "fnmatch '*/' \"\${$1}\"" ; do eval "$1=\${$1%/}" ; done
+}
+
+NO_HAVE=
+trycchdr () {
+    printf "checking whether there is a header called %s... " "$2"
+    dn=`dirname "$2"`
+    if [ "$dn" != "" ]; then
+	dn="/$dn"
+	bn=`basename "$2"`
+	for x in $CCSEARCHPATH ; do
+	    fnd=$fnd"$x$dn "
+	done
+    else
+	bn="$2"
+	fnd=$CCSEARCHPATH
+    fi
+    upper2=$(echo "$2" | tr a-z A-Z | tr . _ | tr / _)
+    if find $fnd -name "$bn" 2>/dev/null | grep "/$2$" >/dev/null 2>&1 ; then
+        eval "$1=\"\${$1} -DHAVE_\${upper2}\""
+        eval "$1=\${$1# }"
+        printf "yes\n"
+        return 0
+    else
+        printf "no\n"
+        NO_HAVE="$NO_HAVE
+NO_$upper2 = 1"
+        return 1
+    fi
+}
+
+# tryccfn flag_name main_content header_file [ld flags]
+tryccfn () {
+    rm -f "$tmpc"
+    printf "checking whether compiler accepts %s from %s..." "$1" "$2"
+    if [ "$2" != "" ]; then
+        printf "%s\n" $2 | sed 's/\(.*\)/#include <\1>/' >> "$tmpc"
+    fi
+    cat >> "$tmpc" <<EOF
+int main() {$1;}
+EOF
+    if [ "$DEBUG" = "1" ]; then
+        echo "cmd: $CC -o '$tmpo' '$tmpc' $3"
+        echo "tmpc:"
+        cat "$tmpc"
+        DEBUG=0
+    fi
+
+    if $CC -o "$tmpo" "$tmpc" $3 >/dev/null 2>&1 ; then
+        printf "yes\n"
+        return 0
+    else
+        printf "no\n"
+        echo "------" >> $CONFIGFILE.log
+        echo "Failed: $CC -o $tmpo tmp.c" >> $CONFIGFILE.log
+        cat "$tmpc" >> $CONFIGFILE.log
+        echo "------" >> $CONFIGFILE.log
+        return 1
+    fi
+}
+
+tryccfn1 () {
+    rm -f "$tmpc"
+    printf "checking whether compiler accepts %s(%s)..." "$2" "$3"
+    cat >> "$tmpc" <<EOF
+int main() {$2($3);}
+EOF
+    flag=$(echo "$2" | cut -d'(' -f1 | tr a-z A-Z)
+    eval "vars=\$$1"
+    if $CC -o "$tmpo" "$tmpc" >/dev/null 2>&1 ; then
+        flag="-DHAVE_${flag}"
+        have=1
+    else
+        flag="-DNO_${flag}"
+        have=0
+    fi
+    if ! printf "%s\n" ${vars} | grep "\-D${flag}\$" >/dev/null 2>&1; then
+        eval "$1=\"\${vars} \${flag}\""
+        eval "$1=\${$1# }"
+    fi
+    if [ "$have" = "1" ]; then
+        printf "yes\n"
+        return 0
+    else
+        printf "no\n"
+        return 1
+    fi
+}
+
+tryflag () {
+    printf "checking whether compiler accepts %s... " "$2"
+    echo "int main() {return 0;}" > "$tmpc"
+    if $CC $CFLAGS_TRY $2 -c -o "$tmpo" "$tmpc" >/dev/null 2>&1 ; then
+        printf "yes\n"
+        eval "$1=\"\${$1} \$2\""
+        eval "$1=\${$1# }"
+        return 0
+    else
+        printf "no\n"
+        return 1
+    fi
+}
+
+tryldflag () { # var, flag, other_arguments (optional)
+    printf "checking whether linker accepts %s... " "$2"
+    echo "int main(){return 0;}" > "$tmpc"
+    if $CC $LDFLAGS "$2" $3 -o "$tmpo" "$tmpc" >/dev/null 2>&1 ; then
+        printf "yes\n"
+        eval "$1=\"\${$1} \$2\""
+        eval "$1=\${$1# }"
+        return 0
+    else
+        printf "no\n"
+        return 1
+    fi
+}
+
+trysharedldflag () {
+    printf "checking whether linker accepts %s... " "$2"
+    echo "typedef int x;" > "$tmpc"
+    if $CC $LDFLAGS -shared "$2" -o "$tmpo" "$tmpc" >/dev/null 2>&1 ; then
+        printf "yes\n"
+        eval "$1=\"\${$1} \$2\""
+        eval "$1=\${$1# }"
+        return 0
+    else
+        printf "no\n"
+        return 1
+    fi
+}
+
+# Beginning of actual script
+CROSS_COMPILING=no
+CFLAGS_AUTO=
+CFLAGS_TRY=
+LDFLAGS_AUTO=
+LDFLAGS_TRY=
+CONFIGFILE=$CONFIGFILE
+if [ "$CONFIGFILE" = "" ]; then
+    CONFIGFILE=config.mk
+fi
+
+if [ "$ARCH" = "" ] && [ "$CROSS_COMPILING" = "no" ]; then
+    ARCH=native
+fi
+
+# check prefixes first, since others may be derived from it unless overridden
+PREFIX=$PREFIX
+for arg ; do
+    case "$arg" in
+        --prefix=*) PREFIX=${arg#*=} ;;
+    esac
+done
+if [ "$PREFIX" = "" ]; then
+    PREFIX=/usr/local
+elif [ "$PREFIX" = "${PREFIX#/}" ]; then
+    PREFIX="`pwd`/$PREFIX"
+fi
+
+EXEC_PREFIX=$EXEC_PREFIX
+for arg ; do
+    case "$arg" in
+        --exec-prefix=*) EXEC_PREFIX=${arg#*=} ;;
+    esac
+done
+if [ "$EXEC_PREFIX" = "" ]; then
+    EXEC_PREFIX=$PREFIX
+elif [ "$EXEC_PREFIX" = "${EXEC_PREFIX#/}" ]; then
+    EXEC_PREFIX="`pwd`/$EXEC_PREFIX"
+fi
+
+DOCDIR="$PREFIX/share/doc"
+MANDIR="$PREFIX/share/man"
+SSL_PREFIX="$PREFIX"
+
+MINIMAL=no
+
+TRY_LTO=no
+TRY_WHOLE_PROGRAM=auto
+
+USE_BUNDLED_YAJL=1
+USE_BUNDLED_YAJL_HELPER=auto
+
+help=yes
+
+for arg ; do
+    case "$arg" in
+        --help|-h) usage ;;
+        --host=*) host=${arg#*=} ;;
+
+        --arch=*) ARCH=${arg#*=} ;;
+        ARCH=*) ARCH=${arg#*=} ;;
+
+        --config-file=*) CONFIGFILE=${arg#*=} ;;
+        CONFIGFILE=*) CONFIGFILE=${arg#*=} ;;
+
+        --curl-prefix=*) CURL_PREFIX=${arg#*=} ;;
+        CURL_PREFIX=*) CURL_PREFIX=${arg#*=} ;;
+
+        --prefix=*) ;; # already handled
+        --exec-prefix=*) ;; # already handled EXEC_PREFIX=${arg#*=} ;;
+        --docdir=*) DOCDIR=${arg#*=} ;;
+        --mandir=*) MANDIR=${arg#*=} ;;
+        --ssl-prefix=*) SSL_PREFIX=${arg#*=} ;;
+        --minimal|--minimal=yes) MINIMAL=yes;;
+
+        --enable-lto|--enable-lto=yes) TRY_LTO=yes;;
+        --enable-lto|--enable-lto=auto) TRY_LTO=auto;;
+        --disable-lto|--enable-lto=no) TRY_LTO=no;;
+
+        --curl-static|--curl-static=yes) CURL_STATIC=yes;;
+
+        --enable-whole-program|--enable-whole-program=yes) TRY_WHOLE_PROGRAM=yes ;;
+        --disable-whole-program|--enable-whole-program=no) TRY_WHOLE_PROGRAM=no ;;
+
+        --use-bundled-yajl|--use-bundled-yajl=yes) USE_BUNDLED_YAJL=1 ;;
+        --no-bundled-yajl|--use-bundled-yajl=no) USE_BUNDLED_YAJL=0 ;;
+
+        --use-bundled-yajl_helper|--use-bundled-yajl_helper=yes) USE_BUNDLED_YAJL_HELPER=1 ;;
+        --no-bundled-yajl_helper|--no-bundled-yajl_helper=yes) USE_BUNDLED_YAJL_HELPER=0 ;;
+
+        --enable-*|--disable-*|--with-*|--without-*|--*dir=*|--build=*) ;;
+        -* ) echo "$0: unknown option $arg" ;;
+        CC=*) CC=${arg#*=} ;;
+        CFLAGS=*) CFLAGS=${arg#*=} ;;
+        CPPFLAGS=*) CPPFLAGS=${arg#*=} ;;
+        LDFLAGS=*) LDFLAGS=${arg#*=} ;;
+        *=*) ;;
+        *) ;;
+    esac
+done
+
+echo "config will be saved to $CONFIGFILE"
+
+for i in PREFIX EXEC_PREFIX DOCDIR MANDIR SSL_PREFIX; do
+    stripdir $i
+done
+
+#
+# Get a temp filename we can use
+#
+i=0
+set -C
+while : ; do i=$(($i+1))
+             tmpc="./conf$$-$PPID-$i.c"
+             tmpo="./conf$$-$PPID-$i.o"
+             tmpe="./conf$$-$PPID-$i._"
+             2>|/dev/null > "$tmpc" && break
+             test "$i" -gt 50 && fail "$0: cannot create temporary file $tmpc"
+done
+set +C
+trap 'rm -f "$tmpc" "$tmpo" "$tmpe"' EXIT QUIT TERM HUP
+trap 'rm -f "$tmpc" "$tmpo" "$tmpe" && echo && fail "$0: interrupted"' INT
+
+#
+# Find an AWK tool to use
+#
+printf "checking for AWK tool... "
+for a in awk gawk mawk nawk; do tryawk "$a"; done
+printf "%s\n" "$AWK"
+test -n "$AWK" || fail "$0: cannot find an AWK tool"
+
+#
+# Find a MAKE tool to use#
+
+printf "checking for MAKE tool... "
+for a in make gmake ; do trymake "$a"; done
+printf "%s\n" "$MAKE"
+test -n "$MAKE" || fail "$0: cannot find a MAKE tool"
+
+#
+# Find a C compiler to use
+#
+printf "checking for C compiler... "
+for c in cc gcc gcc-11 gcc-10 gcc-9 gcc-8 gcc-7 clang; do trycc1 "$c"; done
+for c in cc gcc gcc-11 gcc-10 gcc-9 gcc-8 gcc-7 clang; do trycc2 "$c"; done
+printf "%s\n" "$CC"
+test -n "$CC" || fail "$0: cannot find a C compiler"
+
+printf "checking whether C compiler works... "
+echo "typedef int x;" > "$tmpc"
+if output=$($CC $CPPFLAGS $CFLAGS -c -o "$tmpo" "$tmpc" 2>&1) ; then
+    printf "yes\n"
+else
+    fail "no; compiler output follows:\n%s\n" "$output"
+fi
+
+#
+# Get compiler search paths
+#
+CCSEARCHPATH=$(echo | ${CC} -E -Wp,-v - 2>&1 | ${AWK} '/ \//{print substr($0,2);}')
+
+#
+# Check if it is clang, and the llvm tools instead
+compiler=$(${CC} -v 2>&1 | ${AWK} '/ +version +/{for(i=1;i<=NF;i++){if($i=="version"){printf("%s\n",(last=="LLVM")?"clang":last);exit 0;}last=$i;}}')
+if test "$compiler" = "clang"; then
+    arlist="$CC-llvm-ar $host-llvm-ar $CC-ar $host-ar llvm-ar `ls /usr/bin/llvm-ar* 2>/dev/null` ar"
+    ranliblist="$CC-llvm-ranlib $host-llvm-ranlib $CC-ranlib $host-ranlib llvm-ranlib `ls /usr/bin/llvm-ranlib* 2>/dev/null` ranlib"
+else
+    arlist="$CC-ar $host-$compiler-ar $host-ar $compiler-ar ar"
+    ranliblist="$CC-ranlib $host-$compiler-ranlib $host-ranlib $compiler-ranlib $compiler-ranlib ranlib"
+fi
+
+#
+# Find ar and ranlib to use
+#
+printf "checking for ar... "
+for a in $arlist; do tryar "$a"; done
+printf "%s\n" "$AR"
+test -n "$AR" || fail "$0: cannot find ar"
+
+printf "checking for ranlib... "
+for r in $ranliblist ; do tryranlib "$r"; done
+printf "%s\n" "$RANLIB"
+test -n "$RANLIB" || fail "$0: cannot find ranlib"
+
+#
+# Detect the host system
+#
+printf 'checking host system type... '
+test -n "$host" || host=$($CC -dumpmachine 2>/dev/null) || fail "could not determine host"
+printf '%s\n' "$host"
+
+# start the log
+cat >$CONFIGFILE.log <<_ACEOF
+Config log. Invocation command line was
+  $ $0 $@
+
+_ACEOF
+
+#
+# Figure out options to force errors on unknown flags.
+#
+tryflag   CFLAGS_TRY  -Werror=unknown-warning-option
+tryflag   CFLAGS_TRY  -Werror=unused-command-line-argument
+tryflag   CFLAGS_TRY  -Werror=ignored-optimization-argument
+tryldflag LDFLAGS_TRY -Werror=unknown-warning-option
+tryldflag LDFLAGS_TRY -Werror=unused-command-line-argument
+tryldflag LDFLAGS_TRY -Werror=ignored-optimization-argument
+
+
+CFLAGS_STD="-std=gnu11 -D_POSIX_C_SOURCE=200809L -U_XOPEN_SOURCE -D_XOPEN_SOURCE=700"
+# CFLAGS_OPT="-DNDEBUG"
+MINGW=0
+case "$host" in
+    *-*freebsd*) CFLAGS_STD="$CFLAGS_STD -D_BSD_SOURCE -D__BSD_VISIBLE=1" ;;
+    *-*netbsd*) CFLAGS_STD="$CFLAGS_STD -D_NETBSD_SOURCE" ;;
+    *-*bsd*) CFLAGS_STD="$CFLAGS_STD -D_BSD_SOURCE" ;;
+    *-*darwin*) CFLAGS_STD="$CFLAGS_STD -D_DARWIN_C_SOURCE" ;;
+    *-*mingw32|*-*msys*|*-windows-gnu)
+	CFLAGS_STD="$CFLAGS_STD -D__USE_MINGW_ANSI_STDIO"
+	MINGW=1
+	;;
+esac
+
+tryflag CFLAGS_VECTORIZE -fvectorize
+tryflag CFLAGS_VECTORIZE -ftree-vectorize
+tryflag CFLAGS_VECTORIZE_OPTIMIZED -fopt-info-vec-optimized
+tryflag CFLAGS_VECTORIZE_MISSED -fopt-info-vec-missed
+tryflag CFLAGS_VECTORIZE_ALL -fopt-info-vec-all
+tryflag CFLAGS_OPENMP -fopenmp
+
+tryflag CFLAGS -pipe
+
+# Try flags to optimize speed
+tryflag CFLAGS -ffunction-sections
+tryflag CFLAGS -fdata-sections
+
+HAVE_LTO=0
+if [ "$TRY_LTO" = "yes" ]; then
+    HAVE_LTO=1
+    CFLAGS_LTO="$CFLAGS_LTO -flto"
+elif [ "$TRY_LTO" = "auto" ]; then
+    tryflag CFLAGS_LTO -flto && HAVE_LTO=1
+fi
+
+if [ "$TRY_WHOLE_PROGRAM" = "yes" ] ; then
+    if [ "$HAVE_LTO" = "0" ] ; then
+        LDFLAGS_OPT="$LDFLAGS_OPT -fwhole-program"
+    else
+        echo "Error: whole-program and lto are mutually exclusive; disable one or set both to auto"
+        exit 1
+    fi
+elif [ "$TRY_WHOLE_PROGRAM" = "auto" ] ; then
+    if [ "$HAVE_LTO" = "0" ] ; then
+        tryldflag LDFLAGS_OPT -fwhole-program
+    else
+        echo "Have LTO, not trying -fwhole-program"
+    fi
+fi
+
+tryflag CFLAGS_OPT -fvisibility=hidden
+tryldflag LDFLAGS_AUTO -Wl,--gc-sections
+
+if [ "$ARCH" != "none" ] ; then
+    if ! tryflag CFLAGS -march=$ARCH ; then
+        echo "Flag -march=$ARCH failed!"
+        exit 1
+    fi
+fi
+
+tryldflag LDFLAGS_OPT -ldl
+
+# check SSL headers
+OLDCCSEARCHPATH="$CCSEARCHPATH"
+CCSEARCHPATH="$CCSEARCHPATH $SSL_PREFIX/include"
+if ! trycchdr IGNORE openssl/rsa.h ; then
+    echo "Unable to locate openssl/rsa.h header. Use --ssl-prefix to set a custom location"
+    exit 1
+fi
+CCSEARCHPATH="$OLDCCSEARCHPATH"
+
+if [ "$USE_BUNDLED_YAJL" = "1" ]; then
+    echo "Using bundled yajl"
+else # [ "$USE_BUNDLED_YAJL" = "auto" ] || [ "$USE_BUNDLED_YAJL" = "0" ]; then
+    echo "checking for yajl with yajl_error"
+    if ! tryccfn "yajl_callbacks c; c.yajl_error = NULL" "yajl/yajl_parse.h" "-I$PREFIX/include -L$PREFIX/lib -lyajl"; then
+        if [ "$USE_BUNDLED_YAJL" = "0" ] ; then
+            echo "Unable to find yajl library (with yajl_error) and --no-bundled-yajl specified"
+            exit 1
+        fi
+        YAJL_INCLUDE=src/external/yajl/build/yajl-2.1.1/include
+        echo "Using bundled yajl"
+        USE_BUNDLED_YAJL=1
+    else
+        YAJL_INCLUDE=${PREFIX}/include
+    fi
+fi
+
+if [ "$USE_BUNDLED_YAJL_HELPER" = "1" ]; then
+    echo "Using bundled yajl_helper"
+else # [ "$USE_BUNDLED_YAJL_HELPER" = "auto" ] || [ "$USE_BUNDLED_YAJL_HELPER" = "0" ]; then
+    echo "checking for yajl_helper"
+    if ! tryccfn "struct yajl_helper_parse_state st = {0}" "yajl_helper/yajl_helper.h" "-I$PREFIX/include -I${YAJL_INCLUDE} -L$PREFIX/lib -lyajl_helper"; then
+        if [ "$USE_BUNDLED_YAJL_HELPER" = "0" ] ; then
+            echo "Unable to find yajl_helper library and --no-bundled-yajl_helper specified"
+            exit 1
+        fi
+        echo "Using bundled yajl_helper"
+        USE_BUNDLED_YAJL_HELPER=1
+    fi
+fi
+
+if [ "$CURL_PREFIX" == "" ] ; then
+    CURL_PREFIX=$PREFIX
+fi
+
+if [ "$CURL_STATIC" == "yes" ]; then
+    echo "checking availability of static curl lib"
+    OLDCC="$CC"
+    LDFLAGS_CURL="`$CURL_PREFIX/bin/curl-config --static-libs`"
+    CFLAGS_CURL="`$CURL_PREFIX/bin/curl-config --cflags`"
+    CC="$CC $CFLAGS_CURL"
+    if ! tryccfn "curl_version()" "curl/curl.h" "$LDFLAGS_CURL"; then
+        echo "Error: Failed to compile with static curl library"
+        exit 1
+    fi
+    CC="$OLDCC"
+
+else
+    echo "checking availability of dynamic curl lib"
+    OLDCC="$CC"
+    LDFLAGS_CURL="-L$CURL_PREFIX/lib -lcurl"
+    CFLAGS_CURL=-I$CURL_PREFIX/include
+    CC="$CC $CFLAGS_CURL"
+    if ! tryccfn "curl_version()" "curl/curl.h" "$LDFLAGS_CURL"; then
+        echo "Error: Failed to compile with dynamic curl library using:"
+        echo "  CFLAGS_CURL=$CFLAGS_CURL"
+        echo "  LDFLAGS_CURL=$LDFLAGS_CURL"
+        exit 1
+    fi
+    CC="$OLDCC"
+fi
+
+if [ "$MINGW" = "1" ]; then
+    tryldflag LDFLAGS_TMP -pthread && STATIC_LIBS="$STATIC_LIBS -pthread"
+fi
+
+tryccfn1 CFLAGS_AUTO "__builtin_expect" "0,0"
+tryccfn1 CFLAGS_AUTO "__builtin_expect_with_probability" "0,0,0.5"
+
+printf "creating $CONFIGFILE... "
+
+cmdline=$(quote "$0")
+for i ; do cmdline="$cmdline $(quote "$i")" ; done
+
+exec 3>&1 1> $CONFIGFILE
+
+cat << EOF
+# This version of $CONFIGFILE was generated by:
+# $cmdline
+# Any changes made here will be lost if configure is re-run
+PREFIX = $PREFIX
+EXEC_PREFIX = $EXEC_PREFIX
+BINDIR = $EXEC_PREFIX/bin
+LIBDIR = $EXEC_PREFIX/lib
+INCLUDEDIR = $EXEC_PREFIX/include
+
+DOCPREFIX = $DOCDIR
+MANPREFIX = $MANDIR
+
+SSL_PREFIX = $SSL_PREFIX
+
+
+CC = $CC
+AWK = $AWK
+MAKE = $MAKE
+
+AR = $AR
+RANLIB = $RANLIB
+CFLAGS = $CFLAGS
+LDFLAGS = $LDFLAGS
+CFLAGS_STD = $CFLAGS_STD
+LDFLAGS_STD = $LDFLAGS_STD
+CFLAGS_OPT = $CFLAGS_OPT
+LDFLAGS_OPT = $LDFLAGS_OPT
+LDFLAGS_CURL = $LDFLAGS_CURL
+CFLAGS_CURL = $CFLAGS_CURL
+STATIC_LIBS = $STATIC_LIBS
+CFLAGS_AUTO = $CFLAGS_AUTO
+CFLAGS_LTO = $CFLAGS_LTO
+LDFLAGS_AUTO = $LDFLAGS_AUTO
+
+CFLAGS_DEBUG = -U_FORTIFY_SOURCE -UNDEBUG -O0 -g
+LDFLAGS_DEBUG = -U_FORTIFY_SOURCE -UNDEBUG -O0 -g # -g3 -ggdb
+CFLAGS_PIC = $CFLAGS_PIC
+LDFLAGS_PIC = $LDFLAGS_PIC
+CFLAGS_PIE = $CFLAGS_PIE
+LDFLAGS_PIE = $LDFLAGS_PIE
+USE_DEBUG_STDERR = $USE_DEBUG_STDERR
+CFLAGS_VECTORIZE = $CFLAGS_VECTORIZE
+CFLAGS_VECTORIZE_OPTIMIZED = $CFLAGS_VECTORIZE_OPTIMIZED
+CFLAGS_VECTORIZE_MISSED = $CFLAGS_VECTORIZE_MISSED
+CFLAGS_VECTORIZE_ALL = $CFLAGS_VECTORIZE_ALL
+CFLAGS_OPENMP = $CFLAGS_OPENMP
+
+USE_BUNDLED_YAJL = $USE_BUNDLED_YAJL
+USE_BUNDLED_YAJL_HELPER = $USE_BUNDLED_YAJL_HELPER
+
+$NO_HAVE
+$USE_LIBS
+
+EOF
+exec 1>&3 3>&-
+
+printf "done\n"
+
+echo ""
+echo "****************************************************************"
+echo "*  sxupdate configuration                                      *"
+echo "****************************************************************"
+if [ "$CURL_PREFIX" != "$PREFIX" ]; then
+    echo "*  - curl-prefix: $CURL_PREFIX"
+fi
+echo "*  - ssl-prefix: $SSL_PREFIX"
+
+echo "****************************************************************"
+
+if [ "$CONFIGFILE" != "config.mk" ]; then
+   REALPATH="$(realpath "$CONFIGFILE")"
+   CONFIGPARAM="CONFIGFILE=$REALPATH"
+else
+    CONFIGPARAM=
+fi
+
+if ! [ "$MAKE" = "" ]; then
+    echo ""
+    echo "To build and install the library, run"
+    echo "  $MAKE -C src install $CONFIGPARAM"
+    echo ""
+    echo "To build and run a test:"
+    echo "  $MAKE -C examples test-simple $CONFIGPARAM"
+    echo ""
+fi
+
+if ! "$CC" --version | grep -i gcc >/dev/null && ! "$CC" --version | grep -i clang >/dev/null ; then
+    echo "*********************** WARNING!! ***********************"
+    echo "* Non-gcc/clang compiler untested; use at your own risk *"
+    echo "* consider using gcc or clang instead e.g.:             *"
+    echo "*       ./configure CC=gcc-11                           *"
+    echo "*********************************************************"
+    echo ""
+fi
+
+exit 0

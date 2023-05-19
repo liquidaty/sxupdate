@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "description": "JSON schema for use with sxupdate library, used to hold metadata for version updates",
+  "required": [
+    "items"
+  ],
+  "type": "object",
+  "properties": {
+    "comment": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "link": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "language": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": [
+        {
+          "type": "object",
+          "properties": {
+            "version": {
+              "description": "Representation of semantic version. See https://semver.org/",
+              "type": "object",
+              "required": [ "major", "minor", "patch" ],
+              "properties": {
+                "major": { "type": "integer" },
+                "minor": { "type": "integer" },
+                "patch": { "type": "integer" },
+                "prerelease": {
+                  "description": "Non-blank string consisting of one or more non-blank identifiers, each one of more chars in the range [0-9A-Za-z-]",
+                  "type": "string"
+                },
+                "meta": {
+                  "type": "string"
+                }
+              }
+            },
+            "enclosure": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "description": "Must be of the form https://... (fetch from URL), file://... (local file), or a local file path, relative to the URL where this JSON document is located, containing no colon or backslash character",
+                  "pattern": "^(((https|file)://[^/].*)|[^:\\\\]+)$",
+                  "type": "string"
+                },
+                "length": {
+                  "type": "integer"
+                },
+                "filename": {
+                  "description": "Name of the file that will be downloaded. May only contain alphanumeric characters, slash, dash, underscore and period, may not contain two slashes in a row, and may not end with a slash",
+                  "pattern": "^/?([-_A-Za-z0-9.]+/?)*[-_A-Za-z0-9.]$",
+                  "type": "string"
+                },
+                "signature": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "url",
+                "length",
+                "filename",
+                "signature"
+              ]
+            }
+          },
+          "required": [
+            "version",
+            "enclosure"
+          ]
+        }
+      ]
+    }
+  }
+}

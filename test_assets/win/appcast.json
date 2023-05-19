@@ -1,0 +1,19 @@
+{
+  "items": [
+    {
+      "version": {
+        "major": 2,
+        "minor": 1,
+        "patch": 1,
+        "prerelease": "beta.alpha",
+        "meta": "21AF26D3"
+      },
+      "enclosure": {
+        "url": "dummy_installer.exe",
+        "length": 99999,
+        "filename": "dummy_installer.exe",
+        "signature": "W66bbiFxqZTwyTWPt6sKbxkp2YpKnvvEPyaWpVFRJRcLeRlCBZBNUUeYKkUTuMPEaZMRXJUxJ9CRm2s4/FDOlJIIdLjZUebHcKLeFvbkVbBkRy2bEmpvISYBimo+vM177FaVEKNTWA2VzfyKmhTEEbvi0mCB4s93xcCFzC/c6NgkOPKFmQtP/yNL4w23qBjU1YARcBp/0WxTEFzU4MJXR3qKONjzCMzeAhF3DceR/u2bQgT7d0T7bkApvBwALwHHK7c9s7ZVli0d4F3rBuMSlsfwIfgwkffzKmK/NMUMt8ToBU1iVDD/mCcwUdXjdtIptnbId/aiiULxRtW+SFYMdA=="
+      }
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "items": [
+    {
+      "version": {
+        "major": 2,
+        "minor": 1,
+        "patch": 1,
+        "prerelease": "alpha",
+        "meta": "21AF26D3"
+      },
+      "enclosure": {
+        "url": "./dummy_installer",
+        "length": 99999,
+        "filename": "dummy_installer.exe",
+        "signature": "SIGNATURE"
+      }
+    },
+    {
+      "version": {
+        "major": 0,
+        "minor": 9,
+        "patch": 9,
+        "prerelease": "beta",
+        "meta": "dfdffd"
+      },
+      "enclosure": {
+        "url": "./dummy_installerx",
+        "length": 99999,
+        "filename": "dummy_installerx.exe",
+        "signature": "SIGNATURE"
+      }
+    }
+  ]
+}
