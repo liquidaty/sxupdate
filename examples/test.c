@@ -9,7 +9,6 @@ static char *fgets_no_trailing_white(char * restrict str, int size, FILE * restr
     s[strlen(s)-1] = '\0';
   return s && *s ? s : NULL;
 }
-
 static void interaction_handler(sxupdate_t handle, enum sxupdate_step step,
                                 void (*resume)(sxupdate_t, enum sxupdate_action)) {
   switch(step) {
@@ -125,8 +124,11 @@ int main(int argc, const char *argv[]) {
       sxupdate_set_url(sxu, url);
       if(have_custom_header)
         sxupdate_add_header(sxu, header_name, header_value);
-      if(sxupdate_execute(sxu))
-        fprintf(stderr, "Error: %s\n", sxupdate_err_msg(sxu));
+      if(sxupdate_execute(sxu)) {
+        char *err_msg = sxupdate_err_msg(sxu);
+        fprintf(stderr, "Error: %s\n", err_msg ? err_msg : "Unknown");
+        free(err_msg);
+      }
     }
     sxupdate_delete(sxu);
   }

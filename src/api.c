@@ -222,35 +222,23 @@ static size_t sxupdate_parse_chunk(char *ptr, size_t size, size_t nmemb, void *h
   return len;
 }
 
-/***
- * Fetch and parse the metadata from a file
- */
-static enum sxupdate_status sxupdate_fetch_from_file(sxupdate_t handle,
-                                                     void (*next)(sxupdate_t, enum sxupdate_status)
-                                                     ) {
-#define SXUPDATE_FETCH_FROM_FILE_BUFF_SIZE 1024
-  enum sxupdate_status stat = sxupdate_status_ok;
-  const char *filename = handle->url + strlen(SXUPDATE_FILE_PREFIX);
-  if(handle->verbosity)
-    sxupdate_verbose("Fetching version info from local file %s", filename);
-  FILE *f = fopen(filename, "rb");
-  if(f) {
-    char buff[SXUPDATE_FETCH_FROM_FILE_BUFF_SIZE];
-    size_t len;
-    while(stat == sxupdate_status_ok && (len = fread(buff, 1, sizeof(buff), f)) > 0)
-      stat = sxupdate_parse(handle, buff, len);
-    fclose(f);
-  }
-
+static enum sxupdate_status sxupdate_after_parse(sxupdate_t handle, enum sxupdate_status stat,
+                                                 void (*next)(sxupdate_t, enum sxupdate_status)
+                                                 ) {
   // finish parsing
-  if(stat == sxupdate_status_ok)
-    stat = sxupdate_parse_finish(handle);
+  if(stat == sxupdate_status_ok) {
+    if(handle->parser.scanned_bytes == 0) {
+      handle->err_msg = "Unable to connect. Please check your credentials and try again";
+      stat = sxupdate_status_error;
+    } else
+      stat = sxupdate_parse_finish(handle);
+  }
   next(handle, stat);
   return stat;
 }
 
 /***
- * Fetch and parse the metadata from the network using curl
+ * Fetch and parse the metadata from file or network using curl
  */
 static enum sxupdate_status sxupdate_fetch_from_curl(sxupdate_t handle,
                                                      struct curl_slist *http_headers,
@@ -264,7 +252,7 @@ static enum sxupdate_status sxupdate_fetch_from_curl(sxupdate_t handle,
     curl_easy_setopt(curl, CURLOPT_URL, handle->url);
 
     // set custom headers
-    if(http_headers)
+    if(http_headers && sxupdate_url_is_file(handle->url))
       curl_easy_setopt(curl, CURLOPT_HTTPHEADER, http_headers);
 
     curl_easy_setopt(curl, CURLOPT_XFERINFODATA, handle);
@@ -283,17 +271,23 @@ static enum sxupdate_status sxupdate_fetch_from_curl(sxupdate_t handle,
     // execute
     if(handle->verbosity)
       sxupdate_verbose("Fetching version info from %s", handle->url);
+
     CURLcode res = curl_easy_perform(curl);
+
+    if((sxupdate_url_is_file(handle->url)))
+      handle->http_code = 200;
+    else
+      curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &handle->http_code);
+
     if(res != CURLE_OK) {
       sxupdate_printerr("Error connecting to %s:\n  %s", handle->url, curl_easy_strerror(res));
       stat = sxupdate_status_error;
-    }
+    } else if(!(handle->http_code >= 200 && handle->http_code < 300))
+      stat = sxupdate_status_error;
+
     curl_easy_cleanup(curl);
 
-    // finish parsing
-    if(stat == sxupdate_status_ok)
-      stat = sxupdate_parse_finish(handle);
-    next(handle, stat);
+    stat = sxupdate_after_parse(handle, stat, next);
   }
 
   return stat;
@@ -312,12 +306,8 @@ enum sxupdate_status sxupdate_fetch_and_parse(sxupdate_t handle,
                                               ) {
   enum sxupdate_status stat = sxupdate_status_error;
   if(handle->url
-     && (stat = sxupdate_parse_init(handle)) == sxupdate_status_ok) { // initialize parser
-    if(handle->url_is_file)
-      stat = sxupdate_fetch_from_file(handle, next);
-    else
-      stat = sxupdate_fetch_from_curl(handle, http_headers, next);
-  }
+     && (stat = sxupdate_parse_init(handle)) == sxupdate_status_ok)
+    stat = sxupdate_fetch_from_curl(handle, http_headers, next);
   return stat;
 }
 
@@ -379,15 +369,6 @@ static enum sxupdate_status sxupdate_download(sxupdate_t handle,
   } else
     resolved_url = version->enclosure.url;
 
-  if(sxupdate_url_is_file(resolved_url) == 2) {
-    *save_path_p = strdup(resolved_url + strlen(SXUPDATE_FILE_PREFIX));
-    if(resolved_url != version->enclosure.url)
-      free(resolved_url);
-    if(verbosity)
-      sxupdate_verbose("Using local file %s", *save_path_p ? *save_path_p : "memory error!");
-    return sxupdate_status_ok;
-  }
-
   enum sxupdate_status stat = sxupdate_status_error;
   char *save_path = sxupdate_get_installer_download_path(version->enclosure.filename);
 
@@ -425,14 +406,15 @@ static enum sxupdate_status sxupdate_download(sxupdate_t handle,
 
         // connect and download
         CURLcode res = curl_easy_perform(curl);
-
+        if((sxupdate_url_is_file(resolved_url)))
+          handle->http_code = 200;
+        else
+          curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &handle->http_code);
+        stat = sxupdate_status_error;
         if(res != CURLE_OK)
           sxupdate_printerr("Error connecting to %s:\n  %s", resolved_url, curl_easy_strerror(res));
-        else {
-          // ensure saved_path has executable permissions
-          if(!sxupdate_set_execute_permission(save_path))
-            stat = sxupdate_status_ok;
-        }
+        else if(handle->http_code >= 200 && handle->http_code < 300)
+          stat = sxupdate_status_ok;
         if(verbosity > 2)
           sxupdate_verbose("cleaning up curl call");
         curl_easy_cleanup(curl);
@@ -457,6 +439,10 @@ static void sxupdate_resume(sxupdate_t handle, enum sxupdate_action action) {
   if(action == sxupdate_action_proceed && handle->step == sxupdate_step_have_newer_version) {
     char *downloaded_file_path;
     stat = sxupdate_download(handle, &downloaded_file_path);
+    if(stat == sxupdate_status_ok &&
+       // ensure saved_path has executable permissions
+       sxupdate_set_execute_permission(downloaded_file_path))
+      stat = sxupdate_status_error;
     if(stat == sxupdate_status_ok) {
       // TO DO: check download file size
 
@@ -473,6 +459,8 @@ static void sxupdate_resume(sxupdate_t handle, enum sxupdate_action action) {
 
 static void sxupdate_after_fetch_and_parse(sxupdate_t handle, enum sxupdate_status stat) {
   if(stat == sxupdate_status_ok) {
+    handle->http_code = 0;
+
     // check if this version is newer
     if(sxupdate_version_cmp(handle->latest_version.version, handle->get_current_version(), handle->verbosity) > 0)
       handle->step = sxupdate_step_have_newer_version;
@@ -511,9 +499,22 @@ SXUPDATE_API enum sxupdate_status sxupdate_execute(sxupdate_t handle) {
 }
 
 /***
- * Retrieve the last error message, if any [NOT YET IMPLEMENTED]
+ * Retrieve the last error message. Caller must free
  */
-SXUPDATE_API const char *sxupdate_err_msg(sxupdate_t handle) {
-  (void)(handle);
-  return "to do: sxupdate_err_msg()";
+SXUPDATE_API char *sxupdate_err_msg(sxupdate_t handle) {
+  if(handle->err_msg)
+    return strdup(handle->err_msg);
+  if(handle->http_code > 0 && (handle->http_code >= 400 || handle->http_code < 200)) {
+    switch(handle->http_code) {
+    case 401:
+      return strdup("Unauthorized. Please check your Hub credentials and try again");
+    default:
+      {
+        char *s = malloc(100);
+        snprintf(s, 100, "Http response code %li", handle->http_code);
+        return s;
+      }
+    }
+  }
+  return strdup("Unexpected error");
 }
