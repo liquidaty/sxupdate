@@ -13,7 +13,7 @@ enum sxupdate_status {
   sxupdate_status_memory,
   sxupdate_status_bad_url,
   sxupdate_status_invalid, /* invalid option value */
-  sxupdate_status_parse    /* parse error */
+  sxupdate_status_parse   /* parse error */
 };
 
 enum sxupdate_step {
@@ -128,9 +128,9 @@ enum sxupdate_status sxupdate_add_header(sxupdate_t handle, const char *header_n
 enum sxupdate_status sxupdate_execute(sxupdate_t handle);
 
 /***
- * Retrieve the last error message, if any [NOT YET IMPLEMENTED]
+ * Retrieve the last error message. Caller must free the returned string, if any
  */
-const char *sxupdate_err_msg(sxupdate_t handle);
+char *sxupdate_err_msg(sxupdate_t handle);
 
 #ifndef NO_SIGNATURE
 #include <openssl/rsa.h>

@@ -198,9 +198,11 @@ static int sxupdate_parse_ok(sxupdate_t handle) {
  */
 enum sxupdate_status sxupdate_parse(sxupdate_t handle, const char *data, size_t len) {
   if(handle->parser.stat == yajl_status_ok
-     && (handle->parser.stat = yajl_parse(handle->parser.st.yajl, (const unsigned char *)data, len)) == yajl_status_ok)
+     && (handle->parser.stat = yajl_parse(handle->parser.st.yajl, (const unsigned char *)data, len)) == yajl_status_ok) {
+    handle->parser.scanned_bytes += len;
     return sxupdate_status_ok;
-  return sxupdate_status_error;
+  }
+  return sxupdate_status_parse;
 }
 
 enum sxupdate_status sxupdate_parse_finish(sxupdate_t handle) {

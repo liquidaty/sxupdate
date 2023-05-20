@@ -16,6 +16,7 @@ struct sxupdate_data {
   struct {
     yajl_status stat;
     struct yajl_helper_parse_state st;
+    size_t scanned_bytes;
   } parser;
   struct sxupdate_semantic_version (*get_current_version)();
   sxupdate_interaction_handler interaction_handler;
@@ -25,6 +26,7 @@ struct sxupdate_data {
   struct sxupdate_string_list *installer_args, **installer_args_next;
 
   struct curl_slist *http_headers;
+  long http_code; // curl response
   struct sxupdate_version latest_version;
 
 #ifndef NO_SIGNATURE
@@ -34,6 +36,8 @@ struct sxupdate_data {
     size_t signature_length;
   } latest_version_internal;
 #endif
+
+  const char *err_msg;
 
   unsigned char verbosity;
 
