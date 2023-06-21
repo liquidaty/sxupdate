@@ -1,6 +1,6 @@
 # sxupdate
 
-## Simple Cross-platform Update Utility
+## Simple cross-platform update utility
 
 `sxupdate` is a simple, lightweight, cross-platform update utility designed to work with code in any language. It can be used from the command-line or within GUI applications, and supports either synchronous or asynchronous operations for fetching data and/or user interaction. Updates can be fetched over the internet or from a local file system.
 
