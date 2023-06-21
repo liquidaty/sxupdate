@@ -6,13 +6,14 @@
 
 This library was designed to make it easy to add auto-update to a command-line utility. It is written
 in C, so should be easy to port for other purposes if desired. It is designed to be easily adopted
-for web assembly, though that has not yet been done.
+for web assembly, though that has not yet been tested.
 
 Unlike other updaters such as Sparkle, WinSparkle, Squirrel, GoUpdate, and Google Omaha,
-`sxupdate` uses no UI components, allowing it to be extremely lean and platform-independent, and
-avoiding duplication of and potential inconsistency between UI components.
+`sxupdate` uses a bring-your-own-UI approach, allowing it to be extremely lean and platform-independent
+and applicable to either console or UI-based applications,
+and avoiding duplication of and potential inconsistency between the application and the updater UIs.
 
-Meanwhile, you can still use UI components by calling them in your callbacks, which will be invoked at
+You can still use UI components through your callbacks, which are passed to the updater and then invoked at
 the appropriate time (for example, to ask the user whether to proceed with an update).
 
 `sxupdate` reads metadata from a JSON file that has a similar structure to the XML file used
@@ -23,12 +24,12 @@ by [Sparkle](https://sparkle-project.org), which must conform to [schema/appcast
 ### Features
 - Extremely lightweight and simple to use
   * total static library size is approximately 100kb, which is literally tens of thousands of times
-    smaller than many other auto-updater static libraries that may be a Gb in size
+    smaller than many other auto-updater static libraries that may be > 1 Gb in size
 
-- Cross-platform support (Windows, MacOS, Linux)
+- Cross-platform (Windows, MacOS, Linux, BSD etc)
 
 - Works with code in any language that can call a C function and pass it a C callback
-  * please feel free to open an issue ticket, and/or a PR, if you are looking to use this,
+  * To do: add wrappers for other languates. Please feel free to open an issue ticket, and/or a PR, if you are looking to use this,
     or have already used it, with a different programming language
 
 - Suitable for both command-line and UI-based applications
@@ -102,7 +103,7 @@ by [Sparkle](https://sparkle-project.org), which must conform to [schema/appcast
 
 A simple but fully featured example is available at [examples/test.c](examples/test.c).
 
-More comprehensive documentation is planned...
+More comprehensive documentation is still a work in progress.
 
 
 ### TO DO
