@@ -230,9 +230,9 @@ if [ "$CONFIGFILE" = "" ]; then
     CONFIGFILE=config.mk
 fi
 
-if [ "$ARCH" = "" ] && [ "$CROSS_COMPILING" = "no" ]; then
-    ARCH=native
-fi
+#if [ "$ARCH" = "" ] && [ "$CROSS_COMPILING" = "no" ]; then
+#    ARCH=native
+#fi
 
 # check prefixes first, since others may be derived from it unless overridden
 PREFIX=$PREFIX
