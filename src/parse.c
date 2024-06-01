@@ -6,16 +6,16 @@
 #include "verify.h"
 #include "log.h"
 
-static int sxupdate_end_map(struct yajl_helper_parse_state *st) {
-//  struct yajl_helper_parse_state *st = ctx;
-  sxupdate_t handle = yajl_helper_data(st);
-  if(yajl_helper_got_path(st, 2, "{items["))
+static int sxupdate_end_map(yajl_helper_t yh) {
+//  yajl_helper_t yh = ctx;
+  sxupdate_t handle = yajl_helper_ctx(yh);
+  if(yajl_helper_got_path(yh, 2, "{items["))
     handle->got_version = 1;
   return 1;
 }
 
-static int sxupdate_process_value(struct yajl_helper_parse_state *st, struct json_value *value) {
-  sxupdate_t handle = yajl_helper_data(st);
+static int sxupdate_process_value(yajl_helper_t yh, struct json_value *value) {
+  sxupdate_t handle = yajl_helper_ctx(yh);
   if(handle->got_version) // already parsed a version, so nothing else to do
     return 1;
 
@@ -24,9 +24,9 @@ static int sxupdate_process_value(struct yajl_helper_parse_state *st, struct jso
   size_t *sz_target = NULL;
 
   struct sxupdate_version *v = &handle->latest_version;
-  const char *prop_name = yajl_helper_get_map_key(st, 0);
+  const char *prop_name = yajl_helper_get_map_key(yh, 0);
 
-  if(yajl_helper_got_path(st, 3, "{items[{")) {
+  if(yajl_helper_got_path(yh, 3, "{items[{")) {
     if(prop_name && !strcmp(prop_name, "title"))
       str_target = &v->title;
     else if(prop_name && !strcmp(prop_name, "link"))
@@ -35,7 +35,7 @@ static int sxupdate_process_value(struct yajl_helper_parse_state *st, struct jso
       str_target = &v->description;
     else if(prop_name && !strcmp(prop_name, "pubDate"))
       str_target = &v->pubDate;
-  } else if(yajl_helper_got_path(st, 4, "{items[{version{")) {
+  } else if(yajl_helper_got_path(yh, 4, "{items[{version{")) {
     if(prop_name && !strcmp(prop_name, "major"))
       int_target = &v->version.major;
     else if(prop_name && !strcmp(prop_name, "minor"))
@@ -46,7 +46,7 @@ static int sxupdate_process_value(struct yajl_helper_parse_state *st, struct jso
       str_target = &v->version.prerelease;
     else if(prop_name && !strcmp(prop_name, "meta"))
       str_target = &v->version.meta;
-  } else if(yajl_helper_got_path(st, 4, "{items[{enclosure{")) {
+  } else if(yajl_helper_got_path(yh, 4, "{items[{enclosure{")) {
     if(prop_name && !strcmp(prop_name, "url"))
       str_target = &v->enclosure.url;
     else if(prop_name && !strcmp(prop_name, "length"))
@@ -214,15 +214,15 @@ enum sxupdate_status sxupdate_parse_finish(sxupdate_t handle) {
 }
 
 enum sxupdate_status sxupdate_parse_init(sxupdate_t handle) {
-  handle->parser.stat =
-    yajl_helper_parse_state_init(&handle->parser.st, 32,
-                                 NULL, // start_map,
-                                 sxupdate_end_map,
-                                 NULL, // map_key,
-                                 NULL, // start_array,
-                                 NULL, // end_array,
-                                 sxupdate_process_value,
-                                 handle);
+  handle->parser.yh
+    yajl_helper_new(32,
+                    NULL, // start_map,
+                    sxupdate_end_map,
+                    NULL, // map_key,
+                    NULL, // start_array,
+                    NULL, // end_array,
+                    sxupdate_process_value,
+                    handle);
 
   /* initialize major/minor/patch to -1, so we know after parsing whether it was explicitly set to zero */
   handle->latest_version.version.major =

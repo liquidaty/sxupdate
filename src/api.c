@@ -83,7 +83,7 @@ static void sxupdate_free(sxupdate_t handle) {
   }
   free(handle->latest_version_internal.signature);
   free(handle->url);
-  yajl_helper_parse_state_free(&handle->parser.st);
+  yajl_helper_delete(handle->parser.yh);
 }
 
 
